@@ -1,0 +1,3 @@
+[submodule "backend/transferwee"]
+	path = backend/transferwee
+	url = https://github.com/iamleot/transferwee
