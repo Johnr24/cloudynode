@@ -12,10 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import re
-from jmapc import Client
-from jmapc.methods.email import Get as EmailGet, Query as EmailQuery, Set as EmailSet
-from jmapc.methods.email_submission import Set as EmailSubmissionSet
-from jmapc.methods.mailbox import Query as MailboxQuery
+import httpx
 
 backend_dir = Path(__file__).parent.parent.resolve()
 load_dotenv(dotenv_path=backend_dir.parent / ".env")
@@ -106,43 +103,75 @@ def save_graph(graph_state: GraphState):
     return {"message": "Graph state saved"}
 
 
+async def _call_jmap(client: httpx.AsyncClient, api_url: str, using: list, calls: list):
+    response = await client.post(api_url, json={"using": using, "methodCalls": calls})
+    response.raise_for_status()
+    data = response.json()
+    if "methodResponses" not in data:
+        raise Exception(f"Invalid JMAP response: {data}")
+    for res in data["methodResponses"]:
+        if res[0] == "error":
+            raise Exception(f"JMAP error: {res[1]}")
+    return data["methodResponses"]
+
+
 @app.post("/email/send")
 async def send_email(email: EmailSchema) -> dict:
     """
     Sends an email using Fastmail JMAP API.
     """
-    username = os.getenv("FASTMAIL_USERNAME")
     token = os.getenv("FASTMAIL_API_TOKEN")
-
-    if not username or not token:
+    if not token:
         raise HTTPException(
-            status_code=500,
-            detail="FASTMAIL_USERNAME and FASTMAIL_API_TOKEN must be set in .env file",
+            status_code=500, detail="FASTMAIL_API_TOKEN must be set in .env file"
         )
 
     try:
-        async with Client(
-            host="api.fastmail.com", bearer_token=token
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {token}"}
         ) as client:
-            account_id = client.get_account_id()
-            identities = await client.get_identities()
-            if not identities:
-                raise HTTPException(status_code=500, detail="No identities found for Fastmail account")
-            identity_id = identities[0].id
+            session_res = await client.get("https://api.fastmail.com/jmap/session")
+            session_res.raise_for_status()
+            session = session_res.json()
+            api_url = session["apiUrl"]
+            account_id = session["primaryAccounts"]["urn:ietf:params:jmap:submission"]
 
-            email_submission_set = EmailSubmissionSet(account_id=account_id)
-            email_submission_set.create(
-                identity_id=identity_id,
-                email={
-                    "to": [{"email": recipient} for recipient in email.recipients],
-                    "subject": email.subject,
-                    "bodyValues": {
-                        "1": {"value": email.body, "isEncodingProblem": False, "isTruncated": False}
-                    },
-                    "bodyStructure": {"partId": "1", "type": "text/plain"},
-                },
+            # Get identity
+            identities_res = await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:submission"],
+                calls=[["Identity/get", {"accountId": account_id}, "i1"]],
             )
-            await client.process(email_submission_set)
+            identity_id = identities_res[0][1]["list"][0]["id"]
+
+            # Create and send email
+            await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:submission"],
+                calls=[
+                    [
+                        "EmailSubmission/set",
+                        {
+                            "accountId": account_id,
+                            "create": {
+                                "k1": {
+                                    "identityId": identity_id,
+                                    "subject": email.subject,
+                                    "bodyValues": {"1": {"value": email.body}},
+                                    "bodyStructure": {
+                                        "partId": "1",
+                                        "type": "text/plain",
+                                    },
+                                    "to": [{"email": r} for r in email.recipients],
+                                }
+                            },
+                        },
+                        "s1",
+                    ]
+                ],
+            )
 
         return {"message": "Email has been sent"}
     except Exception as e:
@@ -154,64 +183,109 @@ async def scan_emails():
     """
     Scans unread emails for WeTransfer links and marks them as read.
     """
-    username = os.getenv("FASTMAIL_USERNAME")
     token = os.getenv("FASTMAIL_API_TOKEN")
-
-    if not username or not token:
+    if not token:
         raise HTTPException(
-            status_code=500,
-            detail="FASTMAIL_USERNAME and FASTMAIL_API_TOKEN must be set in .env file",
+            status_code=500, detail="FASTMAIL_API_TOKEN must be set in .env file"
         )
 
-    found_urls = []
     try:
-        async with Client(
-            host="api.fastmail.com", bearer_token=token
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {token}"}
         ) as client:
-            account_id = client.get_account_id()
+            session_res = await client.get("https://api.fastmail.com/jmap/session")
+            session_res.raise_for_status()
+            session = session_res.json()
+            api_url = session["apiUrl"]
+            account_id = session["primaryAccounts"]["urn:ietf:params:jmap:mail"]
 
-            # Find the inbox mailbox ID
-            mailbox_query = MailboxQuery(account_id=account_id)
-            mailbox_query.filter(role="inbox")
-            mailbox_query.limit(1)
-            response = await client.process(mailbox_query)
-            inbox_id = response.get_method_responses()[0].ids[0]
+            # Find inbox
+            inbox_res = await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:mail"],
+                calls=[
+                    [
+                        "Mailbox/query",
+                        {"accountId": account_id, "filter": {"role": "inbox"}},
+                        "m1",
+                    ]
+                ],
+            )
+            inbox_id = inbox_res[0][1]["ids"][0]
 
-            # Query for unread emails in the inbox
-            email_query = EmailQuery(account_id=account_id)
-            email_query.filter(in_mailbox=inbox_id, is_unread=True)
-            response = await client.process(email_query)
-            unread_email_ids = response.get_method_responses()[0].ids
+            # Find unread emails
+            unread_res = await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:mail"],
+                calls=[
+                    [
+                        "Email/query",
+                        {
+                            "accountId": account_id,
+                            "filter": {"inMailbox": inbox_id, "isUnread": True},
+                        },
+                        "e1",
+                    ]
+                ],
+            )
+            unread_ids = unread_res[0][1]["ids"]
 
-            if not unread_email_ids:
+            if not unread_ids:
                 return {"message": "No unread emails found.", "urls": []}
 
-            # Fetch email bodies
-            email_get = EmailGet(account_id=account_id)
-            email_get.ids(unread_email_ids)
-            email_get.properties(["bodyHtml", "bodyPlain"])
-            response = await client.process(email_get)
-            emails = response.get_method_responses()[0].list
+            # Fetch emails
+            emails_res = await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:mail"],
+                calls=[
+                    [
+                        "Email/get",
+                        {
+                            "accountId": account_id,
+                            "ids": unread_ids,
+                            "properties": ["bodyValues", "bodyStructure"],
+                        },
+                        "e2",
+                    ]
+                ],
+            )
+            emails = emails_res[0][1]["list"]
 
-            # Search for WeTransfer links
+            # Extract links
+            found_urls = []
             url_pattern = re.compile(r"https?://we\.tl/[a-zA-Z0-9\-\_]+")
             for email in emails:
-                body = email.body_html or email.body_plain or ""
-                urls = url_pattern.findall(body)
-                found_urls.extend(urls)
+                for part_id, body_part in email.get("bodyValues", {}).items():
+                    urls = url_pattern.findall(body_part.get("value", ""))
+                    found_urls.extend(urls)
 
-            # Mark emails as read
-            if unread_email_ids:
-                email_set = EmailSet(account_id=account_id)
-                email_set.update(ids=unread_email_ids, patch={"isUnread": False})
-                await client.process(email_set)
+            # Mark as read
+            await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:mail"],
+                calls=[
+                    [
+                        "Email/set",
+                        {
+                            "accountId": account_id,
+                            "update": {id: {"isUnread": False} for id in unread_ids},
+                        },
+                        "e3",
+                    ]
+                ],
+            )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to scan emails: {e}")
 
+    unique_urls = sorted(list(set(found_urls)))
     return {
-        "message": f"Found {len(set(found_urls))} new WeTransfer links.",
-        "urls": list(set(found_urls)),
+        "message": f"Found {len(unique_urls)} new WeTransfer links.",
+        "urls": unique_urls,
     }
 
 
