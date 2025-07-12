@@ -1,19 +1,13 @@
 import os
+import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# Add transferwee to path to allow imports
-# This is a bit of a hack, but it's the easiest way to use the script
-# as a library without modifying it.
 backend_dir = Path(__file__).parent.parent.resolve()
 transferwee_dir = backend_dir / "transferwee"
-sys.path.insert(0, str(transferwee_dir))
-
-from transferwee import download as transferwee_download
 
 app = FastAPI()
 
@@ -33,22 +27,26 @@ def read_root():
 @app.post("/download")
 def download_url(request: DownloadRequest):
     """
-    Downloads files from a WeTransfer URL.
+    Downloads files from a WeTransfer URL using the transferwee script.
     """
-    # transferwee's download function expects an argparse-like object.
-    args = SimpleNamespace(
-        url=[request.url],
-        output=None,
-        verbose=False,
-        g=False,  # do not just print the link
-    )
-
-    current_dir = os.getcwd()
     try:
-        os.chdir(DOWNLOADS_DIR)
-        transferwee_download(args)
-        return {"message": f"Download started for {request.url}"}
+        transferwee_script_path = transferwee_dir / "transferwee.py"
+        python_executable = sys.executable
+
+        result = subprocess.run(
+            [python_executable, str(transferwee_script_path), "download", request.url],
+            cwd=DOWNLOADS_DIR,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            error_message = f"Download failed: {result.stderr or result.stdout}"
+            raise HTTPException(status_code=500, detail=error_message)
+
+        return {"message": f"Download completed for {request.url}", "output": result.stdout}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        os.chdir(current_dir)
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
