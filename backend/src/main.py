@@ -320,10 +320,14 @@ def download_url(request: DownloadRequest):
                 return {
                     "message": "URL already downloaded",
                     "url": request.url,
-                    "files": entry.get("files"),
+                    "files": entry.get("files", []),
                 }
 
         files_before = set(os.listdir(DOWNLOADS_DIR))
+        log_entry = {
+            "url": request.url,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
         try:
             transferwee_script_path = transferwee_dir / "transferwee.py"
@@ -342,23 +346,34 @@ def download_url(request: DownloadRequest):
                 check=False,
             )
 
+            log_entry["transferwee_output"] = {
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+
             if result.returncode != 0:
                 error_message = f"Download failed: {result.stderr or result.stdout}"
+                log_entry["status"] = "failed"
+                log_entry["error_message"] = error_message
+                log_entries.append(log_entry)
+                with open(DOWNLOAD_LOG_FILE, "w") as f:
+                    json.dump(log_entries, f, indent=2)
                 raise HTTPException(status_code=500, detail=error_message)
 
             files_after = set(os.listdir(DOWNLOADS_DIR))
             new_files = sorted(list(files_after - files_before))
 
-            if new_files:
-                log_entries.append(
-                    {
-                        "url": request.url,
-                        "files": new_files,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
-                with open(DOWNLOAD_LOG_FILE, "w") as f:
-                    json.dump(log_entries, f, indent=2)
+            log_entry["status"] = "success"
+            log_entry["files"] = new_files
+            log_entry["file_details"] = [
+                {"name": f, "size": os.path.getsize(DOWNLOADS_DIR / f)}
+                for f in new_files
+            ]
+
+            log_entries.append(log_entry)
+            with open(DOWNLOAD_LOG_FILE, "w") as f:
+                json.dump(log_entries, f, indent=2)
 
             return {
                 "message": f"Download completed for {request.url}",
@@ -368,6 +383,11 @@ def download_url(request: DownloadRequest):
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e
+            log_entry["status"] = "failed"
+            log_entry["error_message"] = f"An unexpected error occurred: {e}"
+            log_entries.append(log_entry)
+            with open(DOWNLOAD_LOG_FILE, "w") as f:
+                json.dump(log_entries, f, indent=2)
             raise HTTPException(
                 status_code=500, detail=f"An unexpected error occurred: {e}"
             )
