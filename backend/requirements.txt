@@ -1,5 +1,5 @@
 fastapi
 uvicorn[standard]
 requests
-httpx
+py-fastmail
 python-dotenv
