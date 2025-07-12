@@ -121,9 +121,8 @@ async def send_email(email: EmailSchema) -> dict:
         )
 
     try:
-        headers = {"Authorization": f"Bearer {token}"}
         async with Client(
-            host="api.fastmail.com", headers=headers
+            host="api.fastmail.com", bearer_token=token
         ) as client:
             account_id = client.get_account_id()
             identities = await client.get_identities()
@@ -166,9 +165,8 @@ async def scan_emails():
 
     found_urls = []
     try:
-        headers = {"Authorization": f"Bearer {token}"}
         async with Client(
-            host="api.fastmail.com", headers=headers
+            host="api.fastmail.com", bearer_token=token
         ) as client:
             account_id = client.get_account_id()
 
