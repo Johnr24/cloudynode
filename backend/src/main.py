@@ -298,6 +298,8 @@ async def scan_emails():
                                 "bodyValues",
                                 "bodyStructure",
                             ],
+                            "fetchTextBodyValues": True,
+                            "fetchHTMLBodyValues": True,
                         },
                         "e2",
                     ]
