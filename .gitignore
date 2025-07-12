@@ -273,3 +273,4 @@ backend/.venv/
 backend/downloads/
 # Download log
 backend/download.log.json
+.env
