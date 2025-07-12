@@ -232,7 +232,7 @@ async def scan_emails():
                         "Email/query",
                         {
                             "accountId": account_id,
-                            "filter": {"inMailbox": inbox_id, "isUnread": True},
+                            "filter": {"inMailbox": inbox_id, "notHasKeyword": "$seen"},
                         },
                         "e1",
                     ]
@@ -280,7 +280,7 @@ async def scan_emails():
                         "Email/set",
                         {
                             "accountId": account_id,
-                            "update": {id: {"isUnread": False} for id in unread_ids},
+                            "update": {id: {"keywords/$seen": True} for id in unread_ids},
                         },
                         "e3",
                     ]
