@@ -12,7 +12,7 @@ from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from pydantic import BaseModel, EmailStr
 
 backend_dir = Path(__file__).parent.parent.resolve()
-load_dotenv(dotenv_path=backend_dir / ".env")
+load_dotenv(dotenv_path=backend_dir.parent / ".env")
 transferwee_dir = backend_dir / "transferwee"
 
 conf = ConnectionConfig(
