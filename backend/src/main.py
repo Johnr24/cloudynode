@@ -5,9 +5,11 @@ import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from pydantic import BaseModel, EmailStr
 
@@ -30,10 +32,46 @@ conf = ConnectionConfig(
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 DOWNLOADS_DIR = backend_dir / "downloads"
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 DOWNLOAD_LOG_FILE = backend_dir / "download.log.json"
+GRAPH_STATE_FILE = backend_dir / "graph.json"
 log_lock = threading.Lock()
+graph_lock = threading.Lock()
+
+
+class Node(BaseModel):
+    id: str
+    type: str | None = None
+    position: Dict[str, float]
+    data: Dict[str, Any]
+    className: str | None = None
+    width: int | None = None
+    height: int | None = None
+    selected: bool | None = None
+    positionAbsolute: Dict[str, float] | None = None
+    dragging: bool | None = None
+
+
+class Edge(BaseModel):
+    id: str
+    source: str
+    target: str
+    type: str | None = None
+    animated: bool | None = None
+
+
+class GraphState(BaseModel):
+    nodes: List[Node]
+    edges: List[Edge]
 
 
 class DownloadRequest(BaseModel):
@@ -49,6 +87,32 @@ class EmailSchema(BaseModel):
 @app.get("/")
 def read_root():
     return {"message": "Backend for wetransfer-grab is running."}
+
+
+@app.get("/graph", response_model=GraphState)
+def get_graph():
+    """
+    Retrieves the graph state from a JSON file.
+    """
+    with graph_lock:
+        if not GRAPH_STATE_FILE.exists():
+            return {"nodes": [], "edges": []}
+        with open(GRAPH_STATE_FILE, "r") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return {"nodes": [], "edges": []}
+
+
+@app.post("/graph")
+def save_graph(graph_state: GraphState):
+    """
+    Saves the graph state to a JSON file.
+    """
+    with graph_lock:
+        with open(GRAPH_STATE_FILE, "w") as f:
+            json.dump(graph_state.dict(), f, indent=2)
+    return {"message": "Graph state saved"}
 
 
 @app.post("/email/send")
