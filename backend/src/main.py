@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import re
 import httpx
+from bs4 import BeautifulSoup
 
 backend_dir = Path(__file__).parent.parent.resolve()
 load_dotenv(dotenv_path=backend_dir.parent / ".env")
@@ -118,22 +119,26 @@ async def _call_jmap(client: httpx.AsyncClient, api_url: str, using: list, calls
     return data["methodResponses"]
 
 
-def _find_text_part_ids(body_structure: dict[str, Any] | None) -> List[str]:
+def _find_text_parts(
+    body_structure: dict[str, Any] | None,
+) -> List[Dict[str, str]]:
     """
-    Recursively find text/plain or text/html part IDs from a JMAP bodyStructure.
+    Recursively find text/plain or text/html parts from a JMAP bodyStructure.
+    Returns a list of dicts with 'partId' and 'type'.
     """
-    part_ids = []
+    parts = []
 
     def recurse(part):
-        if part.get("type") in ("text/plain", "text/html") and "partId" in part:
-            part_ids.append(part["partId"])
+        part_type = part.get("type")
+        if part_type in ("text/plain", "text/html") and "partId" in part:
+            parts.append({"partId": part["partId"], "type": part_type})
         if "subParts" in part:
             for sub_part in part["subParts"]:
                 recurse(sub_part)
 
     if body_structure:
         recurse(body_structure)
-    return part_ids
+    return parts
 
 
 @app.post("/email/send")
@@ -312,20 +317,28 @@ async def scan_emails():
             # Extract links
             found_urls = []
             scanned_contents = []
-            url_pattern = re.compile(
-                r"https?://(?:we\.tl|wetransfer\.com)/[a-zA-Z0-9\-\_/]+"
-            )
+            url_pattern = re.compile(r"https?://(?:we\.tl|wetransfer\.com)/[a-zA-Z0-9\-\_/]+")
             for email in emails:
                 email_bodies = []
                 body_values = email.get("bodyValues", {})
-                part_ids = _find_text_part_ids(email.get("bodyStructure"))
+                text_parts = _find_text_parts(email.get("bodyStructure"))
 
-                for part_id in part_ids:
+                for part in text_parts:
+                    part_id = part["partId"]
+                    part_type = part["type"]
                     if part_id in body_values:
                         body_value = body_values[part_id].get("value", "")
                         email_bodies.append(body_value)
-                        urls = url_pattern.findall(body_value)
-                        found_urls.extend(urls)
+
+                        if part_type == "text/html":
+                            soup = BeautifulSoup(body_value, "html.parser")
+                            for a in soup.find_all("a", href=True):
+                                href = a["href"]
+                                if url_pattern.match(href):
+                                    found_urls.append(href)
+                        else:  # text/plain
+                            urls = url_pattern.findall(body_value)
+                            found_urls.extend(urls)
 
                 scanned_contents.append(
                     {"email_id": email.get("id"), "bodies": email_bodies}
