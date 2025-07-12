@@ -6,11 +6,27 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
+from pydantic import BaseModel, EmailStr
 
 backend_dir = Path(__file__).parent.parent.resolve()
+load_dotenv(dotenv_path=backend_dir / ".env")
 transferwee_dir = backend_dir / "transferwee"
+
+conf = ConnectionConfig(
+    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
+    MAIL_FROM=os.getenv("MAIL_FROM"),
+    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
+    MAIL_SERVER=os.getenv("MAIL_SERVER"),
+    MAIL_STARTTLS=os.getenv("MAIL_STARTTLS", "True").lower() == "true",
+    MAIL_SSL_TLS=os.getenv("MAIL_SSL_TLS", "False").lower() == "true",
+    USE_CREDENTIALS=True,
+    VALIDATE_CERTS=True,
+)
+
 
 app = FastAPI()
 
@@ -24,9 +40,32 @@ class DownloadRequest(BaseModel):
     url: str
 
 
+class EmailSchema(BaseModel):
+    recipients: list[EmailStr]
+    subject: str
+    body: str
+
+
 @app.get("/")
 def read_root():
     return {"message": "Backend for wetransfer-grab is running."}
+
+
+@app.post("/email/send")
+async def send_email(email: EmailSchema) -> dict:
+    """
+    Sends an email to a list of recipients.
+    """
+    message = MessageSchema(
+        subject=email.subject,
+        recipients=email.recipients,
+        body=email.body,
+        subtype=MessageType.html,
+    )
+
+    fm = FastMail(conf)
+    await fm.send_message(message)
+    return {"message": "Email has been sent"}
 
 
 @app.post("/download")
