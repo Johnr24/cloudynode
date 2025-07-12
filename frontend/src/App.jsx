@@ -11,10 +11,13 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 
 const initialNodes = [
-  { id: '1', position: { x: 0, y: 0 }, data: { label: 'Email Node' } },
-  { id: '2', position: { x: 0, y: 100 }, data: { label: 'TurboSort Node' } },
+  { id: '1', position: { x: 0, y: 0 }, data: { label: 'Email Node' }, className: 'email-node' },
+  { id: '2', position: { x: 0, y: 100 }, data: { label: 'TurboSort Node' }, className: 'turbosort-node' },
 ];
 const initialEdges = [{ id: 'e1-2', source: '1', target: '2' }];
+
+let id = 3;
+const getId = () => `${id++}`;
 
 function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -25,8 +28,25 @@ function App() {
     [setEdges],
   );
 
+  const onAddNode = useCallback((type) => {
+    const newNode = {
+      id: getId(),
+      position: {
+        x: Math.random() * (window.innerWidth - 200),
+        y: Math.random() * (window.innerHeight - 100),
+      },
+      data: { label: `${type === 'email' ? 'Email' : 'TurboSort'} Node` },
+      className: `${type}-node`,
+    };
+    setNodes((nds) => nds.concat(newNode));
+  }, [setNodes]);
+
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
+      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 4 }}>
+        <button onClick={() => onAddNode('email')}>Add Email Node</button>
+        <button onClick={() => onAddNode('turbosort')} style={{ marginLeft: 5 }}>Add TurboSort Node</button>
+      </div>
       <ReactFlow
         nodes={nodes}
         edges={edges}

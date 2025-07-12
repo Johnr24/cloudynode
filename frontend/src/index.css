@@ -5,3 +5,21 @@ html, body, #root {
   padding: 0;
   font-family: sans-serif;
 }
+
+.react-flow__node {
+  border-radius: 8px;
+  padding: 10px 15px;
+  font-size: 12px;
+}
+
+.email-node {
+  background: #cce5ff;
+  color: #004085;
+  border: 1px solid #b8daff;
+}
+
+.turbosort-node {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
