@@ -10,25 +10,13 @@ from typing import Any, Dict, List
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from pydantic import BaseModel, EmailStr
+from jmapc import Client
+from jmapc.methods.email_submission import Set as EmailSubmissionSet
 
 backend_dir = Path(__file__).parent.parent.resolve()
 load_dotenv(dotenv_path=backend_dir.parent / ".env")
 transferwee_dir = backend_dir / "transferwee"
-
-conf = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
-    MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
-    MAIL_SERVER=os.getenv("MAIL_SERVER"),
-    MAIL_STARTTLS=os.getenv("MAIL_STARTTLS", "True").lower() == "true",
-    MAIL_SSL_TLS=os.getenv("MAIL_SSL_TLS", "False").lower() == "true",
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True,
-)
-
 
 app = FastAPI()
 
@@ -118,18 +106,44 @@ def save_graph(graph_state: GraphState):
 @app.post("/email/send")
 async def send_email(email: EmailSchema) -> dict:
     """
-    Sends an email to a list of recipients.
+    Sends an email using Fastmail JMAP API.
     """
-    message = MessageSchema(
-        subject=email.subject,
-        recipients=email.recipients,
-        body=email.body,
-        subtype=MessageType.html,
-    )
+    username = os.getenv("FASTMAIL_USERNAME")
+    token = os.getenv("FASTMAIL_API_TOKEN")
 
-    fm = FastMail(conf)
-    await fm.send_message(message)
-    return {"message": "Email has been sent"}
+    if not username or not token:
+        raise HTTPException(
+            status_code=500,
+            detail="FASTMAIL_USERNAME and FASTMAIL_API_TOKEN must be set in .env file",
+        )
+
+    try:
+        async with Client.create(
+            hostname="api.fastmail.com", username=username, token=token
+        ) as client:
+            account_id = client.get_account_id()
+            identities = await client.get_identities()
+            if not identities:
+                raise HTTPException(status_code=500, detail="No identities found for Fastmail account")
+            identity_id = identities[0].id
+
+            email_submission_set = EmailSubmissionSet(account_id=account_id)
+            email_submission_set.create(
+                identity_id=identity_id,
+                email={
+                    "to": [{"email": recipient} for recipient in email.recipients],
+                    "subject": email.subject,
+                    "bodyValues": {
+                        "1": {"value": email.body, "isEncodingProblem": False, "isTruncated": False}
+                    },
+                    "bodyStructure": {"partId": "1", "type": "text/plain"},
+                },
+            )
+            await client.process(email_submission_set)
+
+        return {"message": "Email has been sent"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
 
 
 @app.post("/download")
