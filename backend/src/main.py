@@ -31,6 +31,7 @@ app.add_middleware(
 DOWNLOADS_DIR = backend_dir / "downloads"
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 DOWNLOAD_LOG_FILE = backend_dir / "download.log.json"
+EMAIL_SCAN_LOG_FILE = backend_dir / "email_scan.log.json"
 GRAPH_STATE_FILE = backend_dir / "graph.json"
 log_lock = threading.Lock()
 graph_lock = threading.Lock()
@@ -188,11 +189,33 @@ async def scan_emails():
     """
     Scans unread emails for WeTransfer links and marks them as read.
     """
+    log_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": "started",
+    }
+
+    def write_log():
+        with log_lock:
+            if EMAIL_SCAN_LOG_FILE.exists():
+                with open(EMAIL_SCAN_LOG_FILE, "r") as f:
+                    try:
+                        log_entries = json.load(f)
+                    except json.JSONDecodeError:
+                        log_entries = []
+            else:
+                log_entries = []
+            log_entries.append(log_entry)
+            with open(EMAIL_SCAN_LOG_FILE, "w") as f:
+                json.dump(log_entries, f, indent=2)
+
     token = os.getenv("FASTMAIL_API_TOKEN")
     if token:
         token = token.strip()
 
     if not token:
+        log_entry["status"] = "failed"
+        log_entry["error_message"] = "FASTMAIL_API_TOKEN must be set in .env file"
+        write_log()
         raise HTTPException(
             status_code=500, detail="FASTMAIL_API_TOKEN must be set in .env file"
         )
@@ -206,6 +229,7 @@ async def scan_emails():
             session = session_res.json()
             api_url = session["apiUrl"]
             account_id = session["primaryAccounts"]["urn:ietf:params:jmap:mail"]
+            log_entry["jmap_session"] = "success"
 
             # Find inbox
             inbox_res = await _call_jmap(
@@ -221,6 +245,7 @@ async def scan_emails():
                 ],
             )
             inbox_id = inbox_res[0][1]["ids"][0]
+            log_entry["inbox_id"] = inbox_id
 
             # Find unread emails
             unread_res = await _call_jmap(
@@ -239,8 +264,13 @@ async def scan_emails():
                 ],
             )
             unread_ids = unread_res[0][1]["ids"]
+            log_entry["unread_email_ids"] = unread_ids
 
             if not unread_ids:
+                log_entry["status"] = "success"
+                log_entry["message"] = "No unread emails found."
+                log_entry["urls"] = []
+                write_log()
                 return {"message": "No unread emails found.", "urls": []}
 
             # Fetch emails
@@ -254,21 +284,48 @@ async def scan_emails():
                         {
                             "accountId": account_id,
                             "ids": unread_ids,
-                            "properties": ["bodyValues", "bodyStructure"],
+                            "properties": [
+                                "id",
+                                "subject",
+                                "from",
+                                "bodyValues",
+                                "bodyStructure",
+                            ],
                         },
                         "e2",
                     ]
                 ],
             )
             emails = emails_res[0][1]["list"]
+            log_entry["fetched_emails_summary"] = [
+                {
+                    "id": e.get("id"),
+                    "subject": e.get("subject"),
+                    "from": e.get("from"),
+                    "bodyStructure": e.get("bodyStructure"),
+                }
+                for e in emails
+            ]
 
             # Extract links
             found_urls = []
-            url_pattern = re.compile(r"https?://(?:we\.tl|wetransfer\.com)/[a-zA-Z0-9\-\_/]+")
+            scanned_contents = []
+            url_pattern = re.compile(
+                r"https?://(?:we\.tl|wetransfer\.com)/[a-zA-Z0-9\-\_/]+"
+            )
             for email in emails:
+                email_bodies = []
                 for part_id, body_part in email.get("bodyValues", {}).items():
-                    urls = url_pattern.findall(body_part.get("value", ""))
+                    body_value = body_part.get("value", "")
+                    email_bodies.append(body_value)
+                    urls = url_pattern.findall(body_value)
                     found_urls.extend(urls)
+                scanned_contents.append(
+                    {"email_id": email.get("id"), "bodies": email_bodies}
+                )
+
+            log_entry["scanned_contents"] = scanned_contents
+            log_entry["found_urls_before_unique"] = found_urls
 
             # Mark as read
             await _call_jmap(
@@ -280,17 +337,27 @@ async def scan_emails():
                         "Email/set",
                         {
                             "accountId": account_id,
-                            "update": {id: {"keywords/$seen": True} for id in unread_ids},
+                            "update": {
+                                id: {"keywords/$seen": True} for id in unread_ids
+                            },
                         },
                         "e3",
                     ]
                 ],
             )
+            log_entry["marked_as_read"] = unread_ids
 
     except Exception as e:
+        log_entry["status"] = "failed"
+        log_entry["error_message"] = f"Failed to scan emails: {e}"
+        write_log()
         raise HTTPException(status_code=500, detail=f"Failed to scan emails: {e}")
 
     unique_urls = sorted(list(set(found_urls)))
+    log_entry["status"] = "success"
+    log_entry["urls"] = unique_urls
+    log_entry["message"] = f"Found {len(unique_urls)} new WeTransfer links."
+    write_log()
     return {
         "message": f"Found {len(unique_urls)} new WeTransfer links.",
         "urls": unique_urls,
