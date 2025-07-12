@@ -271,3 +271,5 @@ __marimo__/
 backend/.venv/
 # Downloaded files
 backend/downloads/
+# Download log
+backend/download.log.json
