@@ -122,7 +122,7 @@ async def send_email(email: EmailSchema) -> dict:
 
     try:
         async with Client(
-            hostname="api.fastmail.com", username=username, token=token
+            host="api.fastmail.com", username=username, token=token
         ) as client:
             account_id = client.get_account_id()
             identities = await client.get_identities()
@@ -166,7 +166,7 @@ async def scan_emails():
     found_urls = []
     try:
         async with Client(
-            hostname="api.fastmail.com", username=username, token=token
+            host="api.fastmail.com", username=username, token=token
         ) as client:
             account_id = client.get_account_id()
 
