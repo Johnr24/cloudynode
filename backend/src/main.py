@@ -12,7 +12,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import re
-from py_fastmail import FastmailSession, Mailbox, Email
+from fastmail_client import FastMail
+from fastmail_client.endpoints import Mailbox, Email
 
 backend_dir = Path(__file__).parent.parent.resolve()
 load_dotenv(dotenv_path=backend_dir.parent / ".env")
@@ -120,9 +121,9 @@ async def send_email(email: EmailSchema) -> dict:
         )
 
     try:
-        session = FastmailSession(token=token)
+        client = FastMail(token=token)
         await Email.send(
-            session=session,
+            client=client,
             subject=email.subject,
             text_body=email.body,
             recipients=[{"email": r} for r in email.recipients],
@@ -147,9 +148,9 @@ async def scan_emails():
         )
 
     try:
-        session = FastmailSession(token=token)
-        inbox = await Mailbox.get_by_role(session, "inbox")
-        unread_emails = await inbox.get_emails(session, unread=True)
+        client = FastMail(token=token)
+        inbox = await Mailbox.get_by_role(client, "inbox")
+        unread_emails = await inbox.get_emails(client, unread=True)
 
         if not unread_emails:
             return {"message": "No unread emails found.", "urls": []}
@@ -163,7 +164,7 @@ async def scan_emails():
 
         # Mark emails as read
         if unread_emails:
-            await Email.mark_as_read(session, [email.id for email in unread_emails])
+            await Email.mark_as_read(client, ids=[email.id for email in unread_emails])
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to scan emails: {e}")
