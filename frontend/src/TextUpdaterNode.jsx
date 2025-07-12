@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
-import { useReactFlow } from 'reactflow';
+import { Handle, Position, useReactFlow } from 'reactflow';
 
 function TextUpdaterNode({ id, data }) {
   const { setNodes } = useReactFlow();
@@ -41,20 +41,24 @@ function TextUpdaterNode({ id, data }) {
   }, [isEditing]);
 
   return (
-    <div onDoubleClick={handleDoubleClick}>
-      {isEditing ? (
-        <textarea
-          ref={inputRef}
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          className="nodrag"
-        />
-      ) : (
-        <div>{data.label}</div>
-      )}
-    </div>
+    <>
+      {data.nodeType === 'project-folder' && <Handle type="target" position={Position.Top} />}
+      <div onDoubleClick={handleDoubleClick}>
+        {isEditing ? (
+          <textarea
+            ref={inputRef}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            className="nodrag"
+          />
+        ) : (
+          <div>{data.label}</div>
+        )}
+      </div>
+      {data.nodeType === 'email' && <Handle type="source" position={Position.Bottom} />}
+    </>
   );
 }
 

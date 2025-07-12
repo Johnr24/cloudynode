@@ -27,14 +27,20 @@ function App() {
       .then((data) => {
         const hasData = data.nodes && data.nodes.length > 0;
         if (hasData) {
-          setNodes(data.nodes);
+          const patchedNodes = data.nodes.map(node => {
+            if (!node.data.nodeType) {
+              node.data.nodeType = node.className.includes('email-node') ? 'email' : 'project-folder';
+            }
+            return node;
+          });
+          setNodes(patchedNodes);
           setEdges(data.edges || []);
           const maxId = data.nodes.reduce((max, node) => Math.max(max, parseInt(node.id, 10) || 0), 0);
           id = maxId + 1;
         } else {
           const defaultNodes = [
-            { id: '1', type: 'textUpdater', position: { x: 250, y: 50 }, data: { label: 'Email Node' }, className: 'email-node' },
-            { id: '2', type: 'textUpdater', position: { x: 250, y: 150 }, data: { label: 'Project Folder Node' }, className: 'project-folder-node' },
+            { id: '1', type: 'textUpdater', position: { x: 250, y: 50 }, data: { label: 'Email Node', nodeType: 'email' }, className: 'email-node' },
+            { id: '2', type: 'textUpdater', position: { x: 250, y: 150 }, data: { label: 'Project Folder Node', nodeType: 'project-folder' }, className: 'project-folder-node' },
           ];
           const defaultEdges = [{ id: 'e1-2', source: '1', target: '2' }];
           setNodes(defaultNodes);
@@ -72,7 +78,7 @@ function App() {
         x: Math.random() * (window.innerWidth - 200),
         y: 50 + Math.random() * (window.innerHeight - 150),
       },
-      data: { label: `${type === 'email' ? 'Email' : 'Project Folder'} Node` },
+      data: { label: `${type === 'email' ? 'Email' : 'Project Folder'} Node`, nodeType: type },
       className: `${type === 'email' ? 'email-node' : 'project-folder-node'}`,
     };
     setNodes((nds) => nds.concat(newNode));
