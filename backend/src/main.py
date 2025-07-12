@@ -264,7 +264,7 @@ async def scan_emails():
 
             # Extract links
             found_urls = []
-            url_pattern = re.compile(r"https?://we\.tl/[a-zA-Z0-9\-\_]+")
+            url_pattern = re.compile(r"https?://(?:we\.tl|wetransfer\.com)/[a-zA-Z0-9\-\_/]+")
             for email in emails:
                 for part_id, body_part in email.get("bodyValues", {}).items():
                     urls = url_pattern.findall(body_part.get("value", ""))
