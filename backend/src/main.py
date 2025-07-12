@@ -5,4 +5,4 @@ app = FastAPI()
 
 @app.get("/")
 def read_root():
-    return {"message": "Backend for TurboSort is running."}
+    return {"message": "Backend for wetransfer-grab is running."}
