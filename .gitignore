@@ -278,3 +278,4 @@ backend/graph.json
 # Frontend
 frontend/dist/
 frontend/node_modules/
+backend/email_scan.log.json
