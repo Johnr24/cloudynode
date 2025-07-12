@@ -23,3 +23,27 @@ html, body, #root {
   color: #155724;
   border: 1px solid #c3e6cb;
 }
+
+.react-flow__node-textUpdater textarea {
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background-color: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  box-sizing: border-box;
+  resize: none;
+  text-align: center;
+}
+
+.react-flow__node-textUpdater textarea:focus {
+  outline: 1px solid #777;
+  border-radius: 2px;
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+.react-flow__node-textUpdater div {
+  text-align: center;
+}

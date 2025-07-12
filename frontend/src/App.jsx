@@ -7,12 +7,15 @@ import ReactFlow, {
   Controls,
   Background,
 } from 'reactflow';
+import TextUpdaterNode from './TextUpdaterNode.jsx';
 
 import 'reactflow/dist/style.css';
 
+const nodeTypes = { textUpdater: TextUpdaterNode };
+
 const initialNodes = [
-  { id: '1', position: { x: 0, y: 0 }, data: { label: 'Email Node' }, className: 'email-node' },
-  { id: '2', position: { x: 0, y: 100 }, data: { label: 'Project Folder Node' }, className: 'project-folder-node' },
+  { id: '1', type: 'textUpdater', position: { x: 0, y: 0 }, data: { label: 'Email Node' }, className: 'email-node' },
+  { id: '2', type: 'textUpdater', position: { x: 0, y: 100 }, data: { label: 'Project Folder Node' }, className: 'project-folder-node' },
 ];
 const initialEdges = [{ id: 'e1-2', source: '1', target: '2' }];
 
@@ -31,32 +34,16 @@ function App() {
   const onAddNode = useCallback((type) => {
     const newNode = {
       id: getId(),
+      type: 'textUpdater',
       position: {
         x: Math.random() * (window.innerWidth - 200),
         y: Math.random() * (window.innerHeight - 100),
       },
       data: { label: `${type === 'email' ? 'Email' : 'Project Folder'} Node` },
-      className: `${type}-node`,
+      className: `${type === 'email' ? 'email-node' : 'project-folder-node'}`,
     };
     setNodes((nds) => nds.concat(newNode));
   }, [setNodes]);
-
-  const onNodeDoubleClick = useCallback(
-    (event, node) => {
-      const newLabel = prompt('Enter new label:', node.data.label);
-      if (newLabel !== null) {
-        setNodes((nds) =>
-          nds.map((n) => {
-            if (n.id === node.id) {
-              n.data = { ...n.data, label: newLabel };
-            }
-            return n;
-          })
-        );
-      }
-    },
-    [setNodes]
-  );
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
@@ -70,7 +57,7 @@ function App() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        onNodeDoubleClick={onNodeDoubleClick}
+        nodeTypes={nodeTypes}
       >
         <Controls />
         <MiniMap />
