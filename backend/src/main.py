@@ -232,7 +232,7 @@ async def scan_emails():
                         "Email/query",
                         {
                             "accountId": account_id,
-                            "filter": {"inMailbox": inbox_id, "notHasKeyword": "$seen"},
+                            "filter": {"inMailbox": inbox_id, "notKeyword": "$seen"},
                         },
                         "e1",
                     ]
