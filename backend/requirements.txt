@@ -1,5 +1,5 @@
 fastapi
 uvicorn[standard]
 requests
-fastapi-mail==1.5.0
+jmapc
 python-dotenv
