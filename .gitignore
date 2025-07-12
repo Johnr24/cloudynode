@@ -272,3 +272,7 @@ backend/downloads/
 # Download log
 backend/download.log.json
 .env
+
+# Frontend
+frontend/dist/
+frontend/node_modules/
