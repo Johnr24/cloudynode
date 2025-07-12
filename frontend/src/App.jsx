@@ -41,6 +41,23 @@ function App() {
     setNodes((nds) => nds.concat(newNode));
   }, [setNodes]);
 
+  const onNodeDoubleClick = useCallback(
+    (event, node) => {
+      const newLabel = prompt('Enter new label:', node.data.label);
+      if (newLabel !== null) {
+        setNodes((nds) =>
+          nds.map((n) => {
+            if (n.id === node.id) {
+              n.data = { ...n.data, label: newLabel };
+            }
+            return n;
+          })
+        );
+      }
+    },
+    [setNodes]
+  );
+
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 4 }}>
@@ -53,6 +70,7 @@ function App() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeDoubleClick={onNodeDoubleClick}
       >
         <Controls />
         <MiniMap />
