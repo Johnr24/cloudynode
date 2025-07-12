@@ -118,6 +118,24 @@ async def _call_jmap(client: httpx.AsyncClient, api_url: str, using: list, calls
     return data["methodResponses"]
 
 
+def _find_text_part_ids(body_structure: dict[str, Any] | None) -> List[str]:
+    """
+    Recursively find text/plain or text/html part IDs from a JMAP bodyStructure.
+    """
+    part_ids = []
+
+    def recurse(part):
+        if part.get("type") in ("text/plain", "text/html") and "partId" in part:
+            part_ids.append(part["partId"])
+        if "subParts" in part:
+            for sub_part in part["subParts"]:
+                recurse(sub_part)
+
+    if body_structure:
+        recurse(body_structure)
+    return part_ids
+
+
 @app.post("/email/send")
 async def send_email(email: EmailSchema) -> dict:
     """
@@ -299,11 +317,16 @@ async def scan_emails():
             )
             for email in emails:
                 email_bodies = []
-                for part_id, body_part in email.get("bodyValues", {}).items():
-                    body_value = body_part.get("value", "")
-                    email_bodies.append(body_value)
-                    urls = url_pattern.findall(body_value)
-                    found_urls.extend(urls)
+                body_values = email.get("bodyValues", {})
+                part_ids = _find_text_part_ids(email.get("bodyStructure"))
+
+                for part_id in part_ids:
+                    if part_id in body_values:
+                        body_value = body_values[part_id].get("value", "")
+                        email_bodies.append(body_value)
+                        urls = url_pattern.findall(body_value)
+                        found_urls.extend(urls)
+
                 scanned_contents.append(
                     {"email_id": email.get("id"), "bodies": email_bodies}
                 )
