@@ -12,8 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import re
-from fastmail_client import FastMail
-from fastmail_client.endpoints import Mailbox, Email
+import httpx
 
 backend_dir = Path(__file__).parent.parent.resolve()
 load_dotenv(dotenv_path=backend_dir.parent / ".env")
@@ -106,10 +105,22 @@ def save_graph(graph_state: GraphState):
 
 
 
+async def _call_jmap(client: httpx.AsyncClient, api_url: str, using: list, calls: list):
+    response = await client.post(api_url, json={"using": using, "methodCalls": calls})
+    response.raise_for_status()
+    data = response.json()
+    if "methodResponses" not in data:
+        raise Exception(f"Invalid JMAP response: {data}")
+    for res in data["methodResponses"]:
+        if res[0] == "error":
+            raise Exception(f"JMAP error: {res[1]}")
+    return data["methodResponses"]
+
+
 @app.post("/email/send")
 async def send_email(email: EmailSchema) -> dict:
     """
-    Sends an email using Fastmail JMAP API via py-fastmail.
+    Sends an email using Fastmail JMAP API.
     """
     token = os.getenv("FASTMAIL_API_TOKEN")
     if token:
@@ -121,13 +132,52 @@ async def send_email(email: EmailSchema) -> dict:
         )
 
     try:
-        client = FastMail(token=token)
-        await Email.send(
-            client=client,
-            subject=email.subject,
-            text_body=email.body,
-            recipients=[{"email": r} for r in email.recipients],
-        )
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {token}"}
+        ) as client:
+            session_res = await client.get("https://api.fastmail.com/jmap/session")
+            session_res.raise_for_status()
+            session = session_res.json()
+            api_url = session["apiUrl"]
+            account_id = session["primaryAccounts"]["urn:ietf:params:jmap:submission"]
+
+            # Get identity
+            identities_res = await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:submission"],
+                calls=[["Identity/get", {"accountId": account_id}, "i1"]],
+            )
+            identity_id = identities_res[0][1]["list"][0]["id"]
+
+            # Create and send email
+            await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:submission"],
+                calls=[
+                    [
+                        "EmailSubmission/set",
+                        {
+                            "accountId": account_id,
+                            "create": {
+                                "k1": {
+                                    "identityId": identity_id,
+                                    "subject": email.subject,
+                                    "bodyValues": {"1": {"value": email.body}},
+                                    "bodyStructure": {
+                                        "partId": "1",
+                                        "type": "text/plain",
+                                    },
+                                    "to": [{"email": r} for r in email.recipients],
+                                }
+                            },
+                        },
+                        "s1",
+                    ]
+                ],
+            )
+
         return {"message": "Email has been sent"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
@@ -148,23 +198,94 @@ async def scan_emails():
         )
 
     try:
-        client = FastMail(token=token)
-        inbox = await Mailbox.get_by_role(client, "inbox")
-        unread_emails = await inbox.get_emails(client, unread=True)
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {token}"}
+        ) as client:
+            session_res = await client.get("https://api.fastmail.com/jmap/session")
+            session_res.raise_for_status()
+            session = session_res.json()
+            api_url = session["apiUrl"]
+            account_id = session["primaryAccounts"]["urn:ietf:params:jmap:mail"]
 
-        if not unread_emails:
-            return {"message": "No unread emails found.", "urls": []}
+            # Find inbox
+            inbox_res = await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:mail"],
+                calls=[
+                    [
+                        "Mailbox/query",
+                        {"accountId": account_id, "filter": {"role": "inbox"}},
+                        "m1",
+                    ]
+                ],
+            )
+            inbox_id = inbox_res[0][1]["ids"][0]
 
-        found_urls = []
-        url_pattern = re.compile(r"https?://we\.tl/[a-zA-Z0-9\-\_]+")
-        for email in unread_emails:
-            body = email.text_body or ""
-            urls = url_pattern.findall(body)
-            found_urls.extend(urls)
+            # Find unread emails
+            unread_res = await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:mail"],
+                calls=[
+                    [
+                        "Email/query",
+                        {
+                            "accountId": account_id,
+                            "filter": {"inMailbox": inbox_id, "isUnread": True},
+                        },
+                        "e1",
+                    ]
+                ],
+            )
+            unread_ids = unread_res[0][1]["ids"]
 
-        # Mark emails as read
-        if unread_emails:
-            await Email.mark_as_read(client, ids=[email.id for email in unread_emails])
+            if not unread_ids:
+                return {"message": "No unread emails found.", "urls": []}
+
+            # Fetch emails
+            emails_res = await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:mail"],
+                calls=[
+                    [
+                        "Email/get",
+                        {
+                            "accountId": account_id,
+                            "ids": unread_ids,
+                            "properties": ["bodyValues", "bodyStructure"],
+                        },
+                        "e2",
+                    ]
+                ],
+            )
+            emails = emails_res[0][1]["list"]
+
+            # Extract links
+            found_urls = []
+            url_pattern = re.compile(r"https?://we\.tl/[a-zA-Z0-9\-\_]+")
+            for email in emails:
+                for part_id, body_part in email.get("bodyValues", {}).items():
+                    urls = url_pattern.findall(body_part.get("value", ""))
+                    found_urls.extend(urls)
+
+            # Mark as read
+            await _call_jmap(
+                client,
+                api_url,
+                using=["urn:ietf:params:jmap:mail"],
+                calls=[
+                    [
+                        "Email/set",
+                        {
+                            "accountId": account_id,
+                            "update": {id: {"isUnread": False} for id in unread_ids},
+                        },
+                        "e3",
+                    ]
+                ],
+            )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to scan emails: {e}")
