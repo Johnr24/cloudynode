@@ -14,8 +14,8 @@ import 'reactflow/dist/style.css';
 const nodeTypes = { textUpdater: TextUpdaterNode };
 
 const initialNodes = [
-  { id: '1', type: 'textUpdater', position: { x: 0, y: 0 }, data: { label: 'Email Node' }, className: 'email-node' },
-  { id: '2', type: 'textUpdater', position: { x: 0, y: 100 }, data: { label: 'Project Folder Node' }, className: 'project-folder-node' },
+  { id: '1', type: 'textUpdater', position: { x: 250, y: 50 }, data: { label: 'Email Node' }, className: 'email-node' },
+  { id: '2', type: 'textUpdater', position: { x: 250, y: 150 }, data: { label: 'Project Folder Node' }, className: 'project-folder-node' },
 ];
 const initialEdges = [{ id: 'e1-2', source: '1', target: '2' }];
 
@@ -37,7 +37,7 @@ function App() {
       type: 'textUpdater',
       position: {
         x: Math.random() * (window.innerWidth - 200),
-        y: Math.random() * (window.innerHeight - 100),
+        y: 50 + Math.random() * (window.innerHeight - 150),
       },
       data: { label: `${type === 'email' ? 'Email' : 'Project Folder'} Node` },
       className: `${type === 'email' ? 'email-node' : 'project-folder-node'}`,
