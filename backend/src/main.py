@@ -231,22 +231,6 @@ async def scan_emails():
             account_id = session["primaryAccounts"]["urn:ietf:params:jmap:mail"]
             log_entry["jmap_session"] = "success"
 
-            # Find inbox
-            inbox_res = await _call_jmap(
-                client,
-                api_url,
-                using=["urn:ietf:params:jmap:mail"],
-                calls=[
-                    [
-                        "Mailbox/query",
-                        {"accountId": account_id, "filter": {"role": "inbox"}},
-                        "m1",
-                    ]
-                ],
-            )
-            inbox_id = inbox_res[0][1]["ids"][0]
-            log_entry["inbox_id"] = inbox_id
-
             # Find unread emails
             unread_res = await _call_jmap(
                 client,
@@ -257,7 +241,7 @@ async def scan_emails():
                         "Email/query",
                         {
                             "accountId": account_id,
-                            "filter": {"inMailbox": inbox_id, "notKeyword": "$seen"},
+                            "filter": {"notKeyword": "$seen"},
                         },
                         "e1",
                     ]
