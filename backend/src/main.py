@@ -121,6 +121,9 @@ async def send_email(email: EmailSchema) -> dict:
     Sends an email using Fastmail JMAP API.
     """
     token = os.getenv("FASTMAIL_API_TOKEN")
+    if token:
+        token = token.strip()
+
     if not token:
         raise HTTPException(
             status_code=500, detail="FASTMAIL_API_TOKEN must be set in .env file"
@@ -184,6 +187,9 @@ async def scan_emails():
     Scans unread emails for WeTransfer links and marks them as read.
     """
     token = os.getenv("FASTMAIL_API_TOKEN")
+    if token:
+        token = token.strip()
+
     if not token:
         raise HTTPException(
             status_code=500, detail="FASTMAIL_API_TOKEN must be set in .env file"
