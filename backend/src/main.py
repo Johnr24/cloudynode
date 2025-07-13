@@ -38,7 +38,7 @@ EMAIL_SCAN_LOG_FILE = backend_dir / "email_scan.log.json"
 GRAPH_STATE_FILE = backend_dir / "graph.json"
 CONFIG_FILE = backend_dir / "config.json"
 log_lock = asyncio.Lock()
-graph_lock = threading.Lock()
+graph_lock = asyncio.Lock()
 config_lock = asyncio.Lock()
 
 
@@ -91,6 +91,7 @@ class GraphState(BaseModel):
 class DownloadRequest(BaseModel):
     url: str
     client_id: str | None = None
+    project_node_id: str | None = None
 
 
 class Config(BaseModel):
@@ -144,26 +145,27 @@ def read_root():
 
 
 @app.get("/graph", response_model=GraphState)
-def get_graph():
+async def get_graph() -> GraphState:
     """
     Retrieves the graph state from a JSON file.
     """
-    with graph_lock:
+    async with graph_lock:
         if not GRAPH_STATE_FILE.exists():
-            return {"nodes": [], "edges": []}
+            return GraphState(nodes=[], edges=[])
         with open(GRAPH_STATE_FILE, "r") as f:
             try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return {"nodes": [], "edges": []}
+                data = json.load(f)
+                return GraphState(**data)
+            except (json.JSONDecodeError, TypeError):
+                return GraphState(nodes=[], edges=[])
 
 
 @app.post("/graph")
-def save_graph(graph_state: GraphState):
+async def save_graph(graph_state: GraphState):
     """
     Saves the graph state to a JSON file.
     """
-    with graph_lock:
+    async with graph_lock:
         with open(GRAPH_STATE_FILE, "w") as f:
             json.dump(graph_state.dict(), f, indent=2)
     return {"message": "Graph state saved"}
@@ -600,24 +602,36 @@ async def download_url(request: DownloadRequest):
 
             config = await get_config()
             copied_files = []
-            if config.download_directory and new_files:
-                dest_dir = Path(config.download_directory)
-                try:
-                    dest_dir.mkdir(parents=True, exist_ok=True)
-                    for file_name in new_files:
-                        source_path = DOWNLOADS_DIR / file_name
-                        dest_path = dest_dir / file_name
-                        shutil.copy2(source_path, dest_path)
-                        copied_files.append(str(dest_path))
-                    log_entry["copied_to"] = copied_files
-                    await send_progress(
-                        "log", message=f"Copied files to {dest_dir}"
-                    )
-                except Exception as e:
-                    log_entry["copy_error"] = f"Failed to copy files: {e}"
-                    await send_progress(
-                        "log", message=f"ERROR: Failed to copy files: {e}"
-                    )
+            if request.project_node_id and new_files:
+                graph = await get_graph()
+                project_node = next(
+                    (n for n in graph.nodes if n.id == request.project_node_id), None
+                )
+
+                if (
+                    project_node
+                    and project_node.data.get("label")
+                    and config.download_directory
+                ):
+                    project_folder_name = project_node.data["label"]
+                    dest_dir = Path(config.download_directory) / project_folder_name
+
+                    try:
+                        dest_dir.mkdir(parents=True, exist_ok=True)
+                        for file_name in new_files:
+                            source_path = DOWNLOADS_DIR / file_name
+                            dest_path = dest_dir / file_name
+                            shutil.copy2(source_path, dest_path)
+                            copied_files.append(str(dest_path))
+                        log_entry["copied_to"] = copied_files
+                        await send_progress(
+                            "log", message=f"Copied files to {dest_dir}"
+                        )
+                    except Exception as e:
+                        log_entry["copy_error"] = f"Failed to copy files: {e}"
+                        await send_progress(
+                            "log", message=f"ERROR: Failed to copy files: {e}"
+                        )
 
             log_entries.append(log_entry)
             with open(DOWNLOAD_LOG_FILE, "w") as f:
