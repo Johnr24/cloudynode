@@ -6,11 +6,12 @@ import subprocess
 import sys
 import threading
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import re
@@ -86,6 +87,21 @@ class Edge(BaseModel):
 class GraphState(BaseModel):
     nodes: List[Node]
     edges: List[Edge]
+
+
+class ProjectType(str, Enum):
+    livework = "livework"
+    turbosort = "turbosort"
+
+
+class ZuesProject(BaseModel):
+    name: str
+    path: str
+    type: str
+    automationConfigId: str
+    automationConfigName: str
+    scanHostId: str
+    scanHostAlias: str
 
 
 class DownloadRequest(BaseModel):
@@ -169,6 +185,50 @@ async def save_graph(graph_state: GraphState):
         with open(GRAPH_STATE_FILE, "w") as f:
             json.dump(graph_state.dict(), f, indent=2)
     return {"message": "Graph state saved"}
+
+
+@app.get("/projects/discover", response_model=List[ZuesProject])
+async def discover_projects(types: List[ProjectType] | None = Query(None)):
+    """
+    Retrieves a list of discovered projects from Projectzues.
+    """
+    projectzues_address = os.getenv("PROJECTZUES_ADDRESS")
+    if not projectzues_address:
+        raise HTTPException(
+            status_code=500, detail="PROJECTZUES_ADDRESS must be set in .env file"
+        )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{projectzues_address}/api/projects")
+            response.raise_for_status()
+            projects_data = response.json()
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=502, detail=f"Could not connect to Projectzues: {e}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"An error occurred while fetching projects: {e}"
+        )
+
+    try:
+        projects = [ZuesProject(**p) for p in projects_data]
+    except Exception:
+        raise HTTPException(
+            status_code=500, detail="Received invalid project data from Projectzues."
+        )
+
+    if types:
+        projects = [p for p in projects if p.type in types]
+
+    # Deduplicate based on path, preserving order
+    unique_projects: Dict[str, ZuesProject] = {}
+    for project in projects:
+        if project.path not in unique_projects:
+            unique_projects[project.path] = project
+
+    return list(unique_projects.values())
 
 
 @app.websocket("/ws/progress/{client_id}")
