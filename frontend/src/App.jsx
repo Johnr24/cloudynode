@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import ReactFlow, {
   useNodesState,
   useEdgesState,
@@ -11,8 +11,6 @@ import TextUpdaterNode from './TextUpdaterNode.jsx';
 
 import 'reactflow/dist/style.css';
 
-const nodeTypes = { textUpdater: TextUpdaterNode };
-
 let id = 1;
 const getId = () => `${id++}`;
 
@@ -20,6 +18,11 @@ function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [projectTypes, setProjectTypes] = useState(['livework', 'turbosort']);
+
+  const nodeTypes = useMemo(() => ({
+    textUpdater: (props) => <TextUpdaterNode {...props} projectTypes={projectTypes} />
+  }), [projectTypes]);
 
   useEffect(() => {
     fetch('http://localhost:8000/graph')
@@ -70,6 +73,17 @@ function App() {
     [setEdges],
   );
 
+  const handleProjectTypeChange = (e) => {
+    const { name, checked } = e.target;
+    setProjectTypes(prev => {
+      if (checked) {
+        return [...prev, name];
+      } else {
+        return prev.filter(t => t !== name);
+      }
+    });
+  };
+
   const onAddNode = useCallback((type) => {
     const newNode = {
       id: getId(),
@@ -89,6 +103,27 @@ function App() {
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 4 }}>
         <button onClick={() => onAddNode('email')}>Add Email Node</button>
         <button onClick={() => onAddNode('project-folder')} style={{ marginLeft: 5 }}>Add Project Folder Node</button>
+        <div style={{ marginTop: 5 }}>
+          <span>Project Types:</span>
+          <label style={{ marginLeft: 5 }}>
+            <input
+              type="checkbox"
+              name="livework"
+              checked={projectTypes.includes('livework')}
+              onChange={handleProjectTypeChange}
+            />
+            Livework
+          </label>
+          <label style={{ marginLeft: 5 }}>
+            <input
+              type="checkbox"
+              name="turbosort"
+              checked={projectTypes.includes('turbosort')}
+              onChange={handleProjectTypeChange}
+            />
+            Turbosort
+          </label>
+        </div>
       </div>
       <ReactFlow
         nodes={nodes}
