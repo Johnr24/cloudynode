@@ -104,6 +104,10 @@ class ZuesProject(BaseModel):
     scanHostAlias: str
 
 
+class ScanRequest(BaseModel):
+    sender_emails: List[str]
+
+
 class DownloadRequest(BaseModel):
     url: str
     client_id: str | None = None
@@ -347,7 +351,7 @@ async def send_email(email: EmailSchema) -> dict:
 
 
 @app.post("/scan-emails")
-async def scan_emails():
+async def scan_emails(request: ScanRequest):
     """
     Scans unread emails for WeTransfer links and marks them as read.
     """
@@ -393,8 +397,7 @@ async def scan_emails():
             account_id = session["primaryAccounts"]["urn:ietf:params:jmap:mail"]
             log_entry["jmap_session"] = "success"
 
-            config = await get_config()
-            sender_emails = config.sender_emails
+            sender_emails = request.sender_emails
             log_entry["config_sender_emails"] = sender_emails
 
             filter_condition: Dict[str, Any] = {"notKeyword": "$seen"}

@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
 
-function TextUpdaterNode({ id, data, projectTypes = [] }) {
+function TextUpdaterNode({ id, data, projectTypes = [], onScan }) {
   const { setNodes } = useReactFlow();
   const [isEditing, setIsEditing] = useState(false);
   const [label, setLabel] = useState(data.label);
@@ -120,6 +120,11 @@ function TextUpdaterNode({ id, data, projectTypes = [] }) {
           <div>{data.label}</div>
         )}
       </div>
+      {data.nodeType === 'project-folder' && (
+        <button onClick={() => onScan(id)} style={{ marginTop: '5px', width: '100%' }}>
+          Scan
+        </button>
+      )}
       {data.nodeType === 'email' && <Handle type="source" position={Position.Bottom} />}
     </>
   );

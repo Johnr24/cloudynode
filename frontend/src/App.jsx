@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import ReactFlow, {
   useNodesState,
   useEdgesState,
@@ -19,10 +19,82 @@ function App() {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [projectTypes, setProjectTypes] = useState(['livework', 'turbosort']);
+  const [foundUrls, setFoundUrls] = useState([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [downloads, setDownloads] = useState({});
+  const ws = useRef(null);
+  const clientId = useMemo(() => `client-${Math.random().toString(36).substr(2, 9)}`, []);
+
+  const handleScanEmails = useCallback(async (projectNodeId) => {
+    setIsScanning(true);
+    setFoundUrls([]);
+
+    // Find connected email nodes
+    const sourceEdges = edges.filter(edge => edge.target === projectNodeId);
+    const sourceNodeIds = sourceEdges.map(edge => edge.source);
+    const emailNodes = nodes.filter(node => sourceNodeIds.includes(node.id) && node.data.nodeType === 'email');
+    const senderEmails = emailNodes.map(node => node.data.label);
+
+    if (senderEmails.length === 0) {
+        alert('No email nodes connected to this project folder.');
+        setIsScanning(false);
+        return;
+    }
+
+    try {
+        const response = await fetch('http://localhost:8000/scan-emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sender_emails: senderEmails }),
+        });
+        const data = await response.json();
+        if (response.ok) {
+            // Associate found URLs with the project folder they were scanned for
+            setFoundUrls(data.urls.map(url => ({ url, projectNodeId })));
+            if (data.urls.length === 0) {
+                alert('No new WeTransfer links found.');
+            }
+        } else {
+            alert(`Error: ${data.detail}`);
+        }
+    } catch (error) {
+        alert(`Error scanning emails: ${error.message}`);
+    }
+    setIsScanning(false);
+  }, [nodes, edges]);
+
+  const handleDownload = useCallback((url, projectNodeId) => {
+    if (!projectNodeId) {
+        alert('Project folder not specified for download.');
+        return;
+    }
+    setDownloads(prev => ({ ...prev, [url]: { status: 'starting' } }));
+    fetch('http://localhost:8000/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, project_node_id: projectNodeId, client_id: clientId }),
+    });
+  }, [clientId]);
 
   const nodeTypes = useMemo(() => ({
-    textUpdater: (props) => <TextUpdaterNode {...props} projectTypes={projectTypes} />
-  }), [projectTypes]);
+    textUpdater: (props) => <TextUpdaterNode {...props} onScan={handleScanEmails} projectTypes={projectTypes} />
+  }), [projectTypes, handleScanEmails]);
+
+  useEffect(() => {
+    ws.current = new WebSocket(`ws://localhost:8000/ws/progress/${clientId}`);
+    ws.current.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        setDownloads(prev => ({
+            ...prev,
+            [data.url]: data,
+        }));
+    };
+    return () => {
+        if (ws.current) {
+            ws.current.close();
+        }
+    };
+  }, [clientId]);
 
   useEffect(() => {
     fetch('http://localhost:8000/graph')
@@ -100,7 +172,7 @@ function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
-      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 4 }}>
+      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 4, background: 'rgba(255, 255, 255, 0.8)', padding: 10, borderRadius: 5 }}>
         <button onClick={() => onAddNode('email')}>Add Email Node</button>
         <button onClick={() => onAddNode('project-folder')} style={{ marginLeft: 5 }}>Add Project Folder Node</button>
         <div style={{ marginTop: 5 }}>
@@ -124,6 +196,34 @@ function App() {
             Turbosort
           </label>
         </div>
+        {isScanning && <div style={{ marginTop: 5 }}>Scanning...</div>}
+        {foundUrls.length > 0 && (
+          <div style={{ marginTop: 10, background: 'rgba(255, 255, 255, 0.9)', padding: 10, border: '1px solid #ccc', borderRadius: 5, maxHeight: '300px', overflowY: 'auto' }}>
+              <h4>Found WeTransfer Links</h4>
+              {foundUrls.map(({ url, projectNodeId }) => {
+                  const downloadStatus = downloads[url];
+                  const projectNode = nodes.find(n => n.id === projectNodeId);
+                  return (
+                      <div key={url} style={{ marginBottom: 5, padding: 5, border: '1px solid #eee', borderRadius: 3 }}>
+                          <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px' }}>{url.substring(0, 40)}...</a>
+                          <div style={{ fontSize: '12px' }}>To: {projectNode ? projectNode.data.label : 'Unknown Project'}</div>
+                          <button
+                              onClick={() => handleDownload(url, projectNodeId)}
+                              style={{ marginLeft: 5 }}
+                              disabled={!projectNodeId || (downloadStatus && downloadStatus.status !== 'skipped' && downloadStatus.status !== 'failed')}
+                          >
+                              Download
+                          </button>
+                          {downloadStatus && (
+                              <div style={{ fontSize: '12px', marginLeft: 5, marginTop: 3, color: downloadStatus.status === 'failed' ? 'red' : 'inherit' }}>
+                                  Status: {downloadStatus.message || downloadStatus.status}
+                              </div>
+                          )}
+                      </div>
+                  );
+              })}
+          </div>
+        )}
       </div>
       <ReactFlow
         nodes={nodes}
