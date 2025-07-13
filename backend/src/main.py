@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import shutil
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import re
@@ -36,9 +37,29 @@ DOWNLOAD_LOG_FILE = backend_dir / "download.log.json"
 EMAIL_SCAN_LOG_FILE = backend_dir / "email_scan.log.json"
 GRAPH_STATE_FILE = backend_dir / "graph.json"
 CONFIG_FILE = backend_dir / "config.json"
-log_lock = threading.Lock()
+log_lock = asyncio.Lock()
 graph_lock = threading.Lock()
-config_lock = threading.Lock()
+config_lock = asyncio.Lock()
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, client_id: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+
+    async def send_json(self, client_id: str, data: dict):
+        if client_id in self.active_connections:
+            await self.active_connections[client_id].send_json(data)
+
+
+manager = ConnectionManager()
 
 
 class Node(BaseModel):
@@ -69,6 +90,7 @@ class GraphState(BaseModel):
 
 class DownloadRequest(BaseModel):
     url: str
+    client_id: str | None = None
 
 
 class Config(BaseModel):
@@ -82,8 +104,8 @@ class EmailSchema(BaseModel):
     body: str
 
 
-def get_config() -> Config:
-    with config_lock:
+async def get_config() -> Config:
+    async with config_lock:
         if not CONFIG_FILE.exists():
             return Config()
         with open(CONFIG_FILE, "r") as f:
@@ -93,26 +115,26 @@ def get_config() -> Config:
                 return Config()
 
 
-def save_config(config: Config):
-    with config_lock:
+async def save_config(config: Config):
+    async with config_lock:
         with open(CONFIG_FILE, "w") as f:
             json.dump(config.dict(), f, indent=2)
 
 
 @app.get("/config", response_model=Config)
-def get_config_endpoint():
+async def get_config_endpoint():
     """
     Retrieves the application configuration.
     """
-    return get_config()
+    return await get_config()
 
 
 @app.post("/config")
-def save_config_endpoint(config: Config):
+async def save_config_endpoint(config: Config):
     """
     Saves the application configuration.
     """
-    save_config(config)
+    await save_config(config)
     return {"message": "Configuration saved"}
 
 
@@ -147,6 +169,14 @@ def save_graph(graph_state: GraphState):
     return {"message": "Graph state saved"}
 
 
+@app.websocket("/ws/progress/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    await manager.connect(client_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # Keep connection alive
+    except WebSocketDisconnect:
+        manager.disconnect(client_id)
 
 
 async def _call_jmap(client: httpx.AsyncClient, api_url: str, using: list, calls: list):
@@ -259,8 +289,8 @@ async def scan_emails():
         "status": "started",
     }
 
-    def write_log():
-        with log_lock:
+    async def write_log():
+        async with log_lock:
             if EMAIL_SCAN_LOG_FILE.exists():
                 with open(EMAIL_SCAN_LOG_FILE, "r") as f:
                     try:
@@ -280,7 +310,7 @@ async def scan_emails():
     if not token:
         log_entry["status"] = "failed"
         log_entry["error_message"] = "FASTMAIL_API_TOKEN must be set in .env file"
-        write_log()
+        await write_log()
         raise HTTPException(
             status_code=500, detail="FASTMAIL_API_TOKEN must be set in .env file"
         )
@@ -296,7 +326,7 @@ async def scan_emails():
             account_id = session["primaryAccounts"]["urn:ietf:params:jmap:mail"]
             log_entry["jmap_session"] = "success"
 
-            config = get_config()
+            config = await get_config()
             sender_emails = config.sender_emails
             log_entry["config_sender_emails"] = sender_emails
 
@@ -351,7 +381,7 @@ async def scan_emails():
                 log_entry["status"] = "success"
                 log_entry["message"] = "No unread emails found."
                 log_entry["urls"] = []
-                write_log()
+                await write_log()
                 return {"message": "No unread emails found.", "urls": []}
 
             # Fetch emails
@@ -446,14 +476,14 @@ async def scan_emails():
     except Exception as e:
         log_entry["status"] = "failed"
         log_entry["error_message"] = f"Failed to scan emails: {e}"
-        write_log()
+        await write_log()
         raise HTTPException(status_code=500, detail=f"Failed to scan emails: {e}")
 
     unique_urls = sorted(list(set(found_urls)))
     log_entry["status"] = "success"
     log_entry["urls"] = unique_urls
     log_entry["message"] = f"Found {len(unique_urls)} new WeTransfer links."
-    write_log()
+    await write_log()
     return {
         "message": f"Found {len(unique_urls)} new WeTransfer links.",
         "urls": unique_urls,
@@ -461,12 +491,22 @@ async def scan_emails():
 
 
 @app.post("/download")
-def download_url(request: DownloadRequest):
+async def download_url(request: DownloadRequest):
     """
     Downloads files from a WeTransfer URL using the transferwee script
     and logs the download. Prevents re-downloading of the same URL.
+    Streams progress over WebSocket if client_id is provided.
     """
-    with log_lock:
+    client_id = request.client_id
+
+    async def send_progress(message_type: str, **kwargs):
+        if client_id:
+            data = {"type": message_type, "url": request.url, **kwargs}
+            await manager.send_json(client_id, data)
+
+    await send_progress("status", status="started", message="Download process started.")
+
+    async with log_lock:
         # Load existing log
         if DOWNLOAD_LOG_FILE.exists():
             with open(DOWNLOAD_LOG_FILE, "r") as f:
@@ -480,8 +520,15 @@ def download_url(request: DownloadRequest):
         # Check if URL has already been downloaded
         for entry in log_entries:
             if entry.get("url") == request.url:
+                message = "URL already downloaded"
+                await send_progress(
+                    "status",
+                    status="skipped",
+                    message=message,
+                    files=entry.get("files", []),
+                )
                 return {
-                    "message": "URL already downloaded",
+                    "message": message,
                     "url": request.url,
                     "files": entry.get("files", []),
                 }
@@ -496,32 +543,49 @@ def download_url(request: DownloadRequest):
             transferwee_script_path = transferwee_dir / "transferwee.py"
             python_executable = sys.executable
 
-            result = subprocess.run(
-                [
-                    python_executable,
-                    str(transferwee_script_path),
-                    "download",
-                    request.url,
-                ],
+            proc = await asyncio.create_subprocess_exec(
+                python_executable,
+                str(transferwee_script_path),
+                "download",
+                request.url,
                 cwd=DOWNLOADS_DIR,
-                capture_output=True,
-                text=True,
-                check=False,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
 
+            stdout_lines = []
+            if proc.stdout:
+                async for line in proc.stdout:
+                    decoded_line = line.decode().strip()
+                    stdout_lines.append(decoded_line)
+                    await send_progress("log", message=decoded_line)
+
+            stderr_lines = []
+            if proc.stderr:
+                async for line in proc.stderr:
+                    decoded_line = line.decode().strip()
+                    stderr_lines.append(decoded_line)
+                    await send_progress("log", message=f"ERROR: {decoded_line}")
+
+            await proc.wait()
+
+            stdout = "\n".join(stdout_lines)
+            stderr = "\n".join(stderr_lines)
+
             log_entry["transferwee_output"] = {
-                "returncode": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
+                "returncode": proc.returncode,
+                "stdout": stdout,
+                "stderr": stderr,
             }
 
-            if result.returncode != 0:
-                error_message = f"Download failed: {result.stderr or result.stdout}"
+            if proc.returncode != 0:
+                error_message = f"Download failed: {stderr or stdout}"
                 log_entry["status"] = "failed"
                 log_entry["error_message"] = error_message
                 log_entries.append(log_entry)
                 with open(DOWNLOAD_LOG_FILE, "w") as f:
                     json.dump(log_entries, f, indent=2)
+                await send_progress("status", status="failed", message=error_message)
                 raise HTTPException(status_code=500, detail=error_message)
 
             files_after = set(os.listdir(DOWNLOADS_DIR))
@@ -534,7 +598,7 @@ def download_url(request: DownloadRequest):
                 for f in new_files
             ]
 
-            config = get_config()
+            config = await get_config()
             copied_files = []
             if config.download_directory and new_files:
                 dest_dir = Path(config.download_directory)
@@ -546,8 +610,14 @@ def download_url(request: DownloadRequest):
                         shutil.copy2(source_path, dest_path)
                         copied_files.append(str(dest_path))
                     log_entry["copied_to"] = copied_files
+                    await send_progress(
+                        "log", message=f"Copied files to {dest_dir}"
+                    )
                 except Exception as e:
                     log_entry["copy_error"] = f"Failed to copy files: {e}"
+                    await send_progress(
+                        "log", message=f"ERROR: Failed to copy files: {e}"
+                    )
 
             log_entries.append(log_entry)
             with open(DOWNLOAD_LOG_FILE, "w") as f:
@@ -556,19 +626,23 @@ def download_url(request: DownloadRequest):
             response_payload = {
                 "message": f"Download completed for {request.url}",
                 "downloaded_files": new_files,
-                "output": result.stdout,
+                "output": stdout,
             }
             if copied_files:
                 response_payload["copied_files"] = copied_files
+
+            await send_progress(
+                "status", status="success", message="Download successful", **response_payload
+            )
             return response_payload
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e
+            error_message = f"An unexpected error occurred: {e}"
             log_entry["status"] = "failed"
-            log_entry["error_message"] = f"An unexpected error occurred: {e}"
+            log_entry["error_message"] = error_message
             log_entries.append(log_entry)
             with open(DOWNLOAD_LOG_FILE, "w") as f:
                 json.dump(log_entries, f, indent=2)
-            raise HTTPException(
-                status_code=500, detail=f"An unexpected error occurred: {e}"
-            )
+            await send_progress("status", status="failed", message=error_message)
+            raise HTTPException(status_code=500, detail=error_message)
