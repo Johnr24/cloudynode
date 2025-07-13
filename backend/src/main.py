@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -34,8 +35,10 @@ DOWNLOADS_DIR.mkdir(exist_ok=True)
 DOWNLOAD_LOG_FILE = backend_dir / "download.log.json"
 EMAIL_SCAN_LOG_FILE = backend_dir / "email_scan.log.json"
 GRAPH_STATE_FILE = backend_dir / "graph.json"
+CONFIG_FILE = backend_dir / "config.json"
 log_lock = threading.Lock()
 graph_lock = threading.Lock()
+config_lock = threading.Lock()
 
 
 class Node(BaseModel):
@@ -68,10 +71,49 @@ class DownloadRequest(BaseModel):
     url: str
 
 
+class Config(BaseModel):
+    sender_emails: List[EmailStr] = []
+    download_directory: str | None = None
+
+
 class EmailSchema(BaseModel):
     recipients: list[EmailStr]
     subject: str
     body: str
+
+
+def get_config() -> Config:
+    with config_lock:
+        if not CONFIG_FILE.exists():
+            return Config()
+        with open(CONFIG_FILE, "r") as f:
+            try:
+                return Config(**json.load(f))
+            except (json.JSONDecodeError, TypeError):
+                return Config()
+
+
+def save_config(config: Config):
+    with config_lock:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config.dict(), f, indent=2)
+
+
+@app.get("/config", response_model=Config)
+def get_config_endpoint():
+    """
+    Retrieves the application configuration.
+    """
+    return get_config()
+
+
+@app.post("/config")
+def save_config_endpoint(config: Config):
+    """
+    Saves the application configuration.
+    """
+    save_config(config)
+    return {"message": "Configuration saved"}
 
 
 @app.get("/")
@@ -254,6 +296,31 @@ async def scan_emails():
             account_id = session["primaryAccounts"]["urn:ietf:params:jmap:mail"]
             log_entry["jmap_session"] = "success"
 
+            config = get_config()
+            sender_emails = config.sender_emails
+            log_entry["config_sender_emails"] = sender_emails
+
+            filter_condition: Dict[str, Any] = {"notKeyword": "$seen"}
+
+            if sender_emails:
+                from_conditions = [{"from": email} for email in sender_emails]
+                # JMAP doesn't support single-condition OR, so handle 1 email separately
+                if len(from_conditions) == 1:
+                    filter_condition = {
+                        "operator": "AND",
+                        "conditions": [{"notKeyword": "$seen"}, from_conditions[0]],
+                    }
+                else:
+                    filter_condition = {
+                        "operator": "AND",
+                        "conditions": [
+                            {"notKeyword": "$seen"},
+                            {"operator": "OR", "conditions": from_conditions},
+                        ],
+                    }
+
+            log_entry["jmap_filter"] = filter_condition
+
             # Find unread emails
             unread_res = await _call_jmap(
                 client,
@@ -264,7 +331,7 @@ async def scan_emails():
                         "Email/query",
                         {
                             "accountId": account_id,
-                            "filter": {"notKeyword": "$seen"},
+                            "filter": filter_condition,
                         },
                         "e1",
                     ]
@@ -460,15 +527,33 @@ def download_url(request: DownloadRequest):
                 for f in new_files
             ]
 
+            config = get_config()
+            copied_files = []
+            if config.download_directory and new_files:
+                dest_dir = Path(config.download_directory)
+                try:
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    for file_name in new_files:
+                        source_path = DOWNLOADS_DIR / file_name
+                        dest_path = dest_dir / file_name
+                        shutil.copy2(source_path, dest_path)
+                        copied_files.append(str(dest_path))
+                    log_entry["copied_to"] = copied_files
+                except Exception as e:
+                    log_entry["copy_error"] = f"Failed to copy files: {e}"
+
             log_entries.append(log_entry)
             with open(DOWNLOAD_LOG_FILE, "w") as f:
                 json.dump(log_entries, f, indent=2)
 
-            return {
+            response_payload = {
                 "message": f"Download completed for {request.url}",
                 "downloaded_files": new_files,
                 "output": result.stdout,
             }
+            if copied_files:
+                response_payload["copied_files"] = copied_files
+            return response_payload
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e
