@@ -188,7 +188,9 @@ async def save_graph(graph_state: GraphState):
 
 
 @app.get("/projects/discover", response_model=List[ZuesProject])
-async def discover_projects(types: List[ProjectType] | None = Query(None)):
+async def discover_projects(
+    types: List[ProjectType] | None = Query(None), name: str | None = Query(None)
+):
     """
     Retrieves a list of discovered projects from Projectzues.
     """
@@ -218,6 +220,9 @@ async def discover_projects(types: List[ProjectType] | None = Query(None)):
         raise HTTPException(
             status_code=500, detail="Received invalid project data from Projectzues."
         )
+
+    if name:
+        projects = [p for p in projects if name.lower() in p.name.lower()]
 
     if types:
         projects = [p for p in projects if p.type in types]
