@@ -72,7 +72,7 @@ class DownloadRequest(BaseModel):
 
 
 class Config(BaseModel):
-    sender_emails: List[EmailStr] = []
+    sender_emails: List[str] = []
     download_directory: str | None = None
 
 
@@ -303,14 +303,21 @@ async def scan_emails():
             filter_condition: Dict[str, Any] = {"notKeyword": "$seen"}
 
             if sender_emails:
-                from_conditions = [{"from": email} for email in sender_emails]
+                from_conditions = []
+                for email in sender_emails:
+                    if email.startswith("*@"):
+                        domain = email[2:]
+                        from_conditions.append({"from": f"@{domain}"})
+                    else:
+                        from_conditions.append({"from": email})
+
                 # JMAP doesn't support single-condition OR, so handle 1 email separately
                 if len(from_conditions) == 1:
                     filter_condition = {
                         "operator": "AND",
                         "conditions": [{"notKeyword": "$seen"}, from_conditions[0]],
                     }
-                else:
+                elif len(from_conditions) > 1:
                     filter_condition = {
                         "operator": "AND",
                         "conditions": [
