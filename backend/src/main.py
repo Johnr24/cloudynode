@@ -618,6 +618,12 @@ async def download_url(request: DownloadRequest):
 
                     try:
                         dest_dir.mkdir(parents=True, exist_ok=True)
+
+                        # Create .turbosort file
+                        turbosort_file_path = dest_dir / ".turbosort"
+                        with open(turbosort_file_path, "w") as f:
+                            f.write(project_folder_name)
+
                         for file_name in new_files:
                             source_path = DOWNLOADS_DIR / file_name
                             dest_path = dest_dir / file_name
