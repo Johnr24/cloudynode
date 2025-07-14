@@ -655,7 +655,11 @@ async def _download_link(
                     and config.download_directory
                 ):
                     project_folder_name = project_node.data["label"]
-                    dest_dir = Path(config.download_directory) / project_folder_name
+                    dest_dir = (
+                        Path(config.download_directory)
+                        / project_folder_name
+                        / "turbosort"
+                    )
 
                     try:
                         dest_dir.mkdir(parents=True, exist_ok=True)
