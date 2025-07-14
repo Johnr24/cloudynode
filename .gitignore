@@ -281,3 +281,4 @@ frontend/node_modules/
 backend/email_scan.log.json
 backend/data
 backend/data/*
+frontend/package-lock.json
