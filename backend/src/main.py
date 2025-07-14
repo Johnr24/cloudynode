@@ -94,7 +94,7 @@ class ProjectType(str, Enum):
     turbosort = "turbosort"
 
 
-class ZuesProject(BaseModel):
+class ZeusProject(BaseModel):
     name: str
     path: str
     type: str
@@ -191,27 +191,27 @@ async def save_graph(graph_state: GraphState):
     return {"message": "Graph state saved"}
 
 
-@app.get("/projects/discover", response_model=List[ZuesProject])
+@app.get("/projects/discover", response_model=List[ZeusProject])
 async def discover_projects(
     types: List[ProjectType] | None = Query(None), name: str | None = Query(None)
 ):
     """
-    Retrieves a list of discovered projects from Projectzues.
+    Retrieves a list of discovered projects from ProjectZeus.
     """
-    projectzues_address = os.getenv("PROJECTZUES_ADDRESS")
-    if not projectzues_address:
+    projectzeus_address = os.getenv("PROJECTZEUS_ADDRESS")
+    if not projectzeus_address:
         raise HTTPException(
-            status_code=500, detail="PROJECTZUES_ADDRESS must be set in .env file"
+            status_code=500, detail="PROJECTZEUS_ADDRESS must be set in .env file"
         )
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{projectzues_address}/api/projects")
+            response = await client.get(f"{projectzeus_address}/api/projects")
             response.raise_for_status()
             projects_data = response.json()
     except httpx.RequestError as e:
         raise HTTPException(
-            status_code=502, detail=f"Could not connect to Projectzues: {e}"
+            status_code=502, detail=f"Could not connect to ProjectZeus: {e}"
         )
     except Exception as e:
         raise HTTPException(
@@ -219,10 +219,10 @@ async def discover_projects(
         )
 
     try:
-        projects = [ZuesProject(**p) for p in projects_data]
+        projects = [ZeusProject(**p) for p in projects_data]
     except Exception:
         raise HTTPException(
-            status_code=500, detail="Received invalid project data from Projectzues."
+            status_code=500, detail="Received invalid project data from ProjectZeus."
         )
 
     if name:
@@ -232,7 +232,7 @@ async def discover_projects(
         projects = [p for p in projects if p.type in types]
 
     # Deduplicate based on path, preserving order
-    unique_projects: Dict[str, ZuesProject] = {}
+    unique_projects: Dict[str, ZeusProject] = {}
     for project in projects:
         if project.path not in unique_projects:
             unique_projects[project.path] = project
