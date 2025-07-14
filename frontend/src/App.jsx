@@ -107,11 +107,10 @@ function App() {
 
       if (sourceNode && targetNode) {
         const isEmailToProject = sourceNode.data.nodeType === 'email' && targetNode.data.nodeType === 'project-folder';
-        const urlPattern = /https?:\/\/(we\.tl|wetransfer\.com)\/[a-zA-Z0-9\-\/_]+/;
-        const isUrl = urlPattern.test(sourceNode.data.label);
+        const urlToDownload = sourceNode.data.url;
 
-        if (isEmailToProject && isUrl) {
-          handleDownload(sourceNode.data.label, targetNode.id);
+        if (isEmailToProject && urlToDownload) {
+          handleDownload(urlToDownload, targetNode.id);
         }
       }
       setEdges((eds) => addEdge(params, eds));

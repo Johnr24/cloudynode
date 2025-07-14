@@ -79,7 +79,7 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
             .then(res => res.json())
             .then(data => {
               // Unify suggestion format
-              setSuggestions(data.links ? data.links.map(link => ({ name: `${link.url} (from: ${link.sender})`, value: link.url, path: link.url })) : []);
+              setSuggestions(data.links ? data.links.map(link => ({ name: `${link.url} (from: ${link.sender})`, value: link.url, path: link.url, sender: link.sender })) : []);
               setLoading(false);
             })
             .catch(() => setLoading(false));
@@ -101,7 +101,7 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
           if (data.nodeType === 'project-folder') {
             node.data = { ...node.data, label: suggestion.name, path: suggestion.path };
           } else { // email node
-            node.data = { ...node.data, label: suggestion.value };
+            node.data = { ...node.data, label: suggestion.sender, url: suggestion.value };
           }
         }
         return node;
@@ -142,9 +142,14 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
         ) : (
           <div>
             <div>{data.label}</div>
-            {data.nodeType === 'email' && downloads[data.label] && (
-              <div style={{ fontSize: '10px', color: downloads[data.label].status === 'failed' ? 'red' : 'gray' }}>
-                Status: {downloads[data.label].message || downloads[data.label].status}
+            {data.nodeType === 'email' && data.url && (
+              <div style={{ fontSize: '10px', color: 'green' }}>
+                Link: {data.url.substring(0, 30)}...
+              </div>
+            )}
+            {data.nodeType === 'email' && data.url && downloads[data.url] && (
+              <div style={{ fontSize: '10px', color: downloads[data.url].status === 'failed' ? 'red' : 'gray' }}>
+                Status: {downloads[data.url].message || downloads[data.url].status}
               </div>
             )}
           </div>
