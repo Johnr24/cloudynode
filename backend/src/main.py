@@ -35,9 +35,11 @@ app.add_middleware(
 
 DOWNLOADS_DIR = backend_dir / "downloads"
 DOWNLOADS_DIR.mkdir(exist_ok=True)
-DOWNLOAD_LOG_FILE = backend_dir / "download.log.json"
-EMAIL_SCAN_LOG_FILE = backend_dir / "email_scan.log.json"
-GRAPH_STATE_FILE = backend_dir / "graph.json"
+DATA_DIR = backend_dir / "data"
+DATA_DIR.mkdir(exist_ok=True)
+DOWNLOAD_LOG_FILE = DATA_DIR / "download.log.json"
+EMAIL_SCAN_LOG_FILE = DATA_DIR / "email_scan.log.json"
+GRAPH_STATE_FILE = DATA_DIR / "graph.json"
 log_lock = asyncio.Lock()
 graph_lock = asyncio.Lock()
 
