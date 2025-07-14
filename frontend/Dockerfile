@@ -5,14 +5,14 @@ ENV NODE_ENV=production
 # Set the working directory
 WORKDIR /app
 # Copy the package.json and package-lock.json files
-COPY package.json /app/
+COPY package*.json ./
 # Copy the application code
-COPY .* /app
+COPY . .
 # Install dependencies
-RUN npm install --production
+RUN npm install
 # Build the application
 RUN npm run build
-# Set the working directory for the production build
-CMD ["npm", "start"]
+# Set the command to run the application
+CMD ["npm", "run", "preview", "--", "--port", "3000"]
 # Expose the port the app runs on
 EXPOSE 3000
