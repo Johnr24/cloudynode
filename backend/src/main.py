@@ -193,6 +193,7 @@ async def discover_projects(
 ):
     """
     Retrieves a list of discovered projects from ProjectZeus.
+    PROJECTZEUS_ADDRESS should be set to the root of the API (e.g., http://host/api).
     """
     projectzeus_address = os.getenv("PROJECTZEUS_ADDRESS")
     if not projectzeus_address:
@@ -202,7 +203,8 @@ async def discover_projects(
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{projectzeus_address}/api/projects")
+            url = f"{projectzeus_address.rstrip('/')}/projects"
+            response = await client.get(url)
             response.raise_for_status()
             projects_data = response.json()
     except httpx.RequestError as e:
