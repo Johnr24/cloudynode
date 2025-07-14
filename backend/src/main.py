@@ -242,6 +242,10 @@ async def discover_projects(
             status_code=500, detail="Received invalid project data from ProjectZeus."
         )
 
+    ignore_label = os.getenv("PROJECTZEUS_IGNORE_LABEL")
+    if ignore_label:
+        projects = [p for p in projects if p.name.lower() != ignore_label.lower()]
+
     if name:
         projects = [p for p in projects if name.lower() in p.name.lower()]
 
