@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
 
-function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
+function TextUpdaterNode({ id, data, projectTypes = [] }) {
   const { setNodes } = useReactFlow();
   const [isEditing, setIsEditing] = useState(false);
   const [label, setLabel] = useState(data.label);
@@ -48,7 +48,7 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
 
   // Debounced search for suggestions
   useEffect(() => {
-    if (!isEditing) {
+    if (!isEditing || data.nodeType !== 'project-folder') {
       setSuggestions([]);
       return;
     }
@@ -60,45 +60,20 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
       }
       setLoading(true);
 
-      if (data.nodeType === 'project-folder') {
-        const typesQuery = projectTypes.length > 0 ? `&types=${projectTypes.join('&types=')}` : '';
-        fetch(`http://localhost:8000/projects/discover?name=${encodeURIComponent(label)}${typesQuery}`)
-          .then(res => res.json())
-          .then(data => {
-            setSuggestions(data);
-            setLoading(false);
-          })
-          .catch(() => setLoading(false));
-      } else if (data.nodeType === 'email') {
-        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        // Only scan if the original label was an email, not a URL
-        if (emailPattern.test(data.label)) {
-          const params = new URLSearchParams();
-          params.append('sender_emails', data.label);
-          fetch(`http://localhost:8000/scan-emails?${params.toString()}`)
-            .then(res => res.json())
-            .then(data => {
-              // Unify suggestion format
-              setSuggestions(data.links ? data.links.map(link => {
-                let name = `${link.subject} (from: ${link.sender})`;
-                if (link.totalLinks > 1) {
-                  name += ` [${link.linkIndex}/${link.totalLinks}]`;
-                }
-                return { name, value: link.url, path: link.url, sender: link.sender };
-              }) : []);
-              setLoading(false);
-            })
-            .catch(() => setLoading(false));
-        } else {
+      const typesQuery = projectTypes.length > 0 ? `&types=${projectTypes.join('&types=')}` : '';
+      fetch(`http://localhost:8000/projects/discover?name=${encodeURIComponent(label)}${typesQuery}`)
+        .then(res => res.json())
+        .then(data => {
+          setSuggestions(data);
           setLoading(false);
-        }
-      }
+        })
+        .catch(() => setLoading(false));
     }, 300);
 
     return () => {
       clearTimeout(handler);
     };
-  }, [label, data.nodeType, data.label, isEditing, projectTypes]);
+  }, [label, data.nodeType, isEditing, projectTypes]);
 
   const handleSelectSuggestion = (suggestion) => {
     setNodes((nodes) =>
@@ -106,8 +81,6 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
         if (node.id === id) {
           if (data.nodeType === 'project-folder') {
             node.data = { ...node.data, label: suggestion.name, path: suggestion.path };
-          } else { // email node
-            node.data = { ...node.data, label: suggestion.sender, url: suggestion.value };
           }
         }
         return node;
@@ -130,7 +103,7 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
               onBlur={handleBlur}
               onKeyDown={handleKeyDown}
             />
-            {(data.nodeType === 'project-folder' || data.nodeType === 'email') && (
+            {data.nodeType === 'project-folder' && (
               <>
                 {loading && <div style={{ fontSize: '10px', color: 'gray' }}>Loading...</div>}
                 {suggestions.length > 0 && (
@@ -148,16 +121,6 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
         ) : (
           <div>
             <div>{data.label}</div>
-            {data.nodeType === 'email' && data.url && (
-              <div style={{ fontSize: '10px', color: 'green' }}>
-                Link: {data.url.substring(0, 30)}...
-              </div>
-            )}
-            {data.nodeType === 'email' && data.url && downloads[data.url] && (
-              <div style={{ fontSize: '10px', color: downloads[data.url].status === 'failed' ? 'red' : 'gray' }}>
-                Status: {downloads[data.url].message || downloads[data.url].status}
-              </div>
-            )}
           </div>
         )}
       </div>

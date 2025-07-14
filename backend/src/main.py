@@ -17,6 +17,7 @@ from pydantic import BaseModel, EmailStr
 import re
 import httpx
 from bs4 import BeautifulSoup
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 backend_dir = Path(__file__).parent.parent.resolve()
 load_dotenv(dotenv_path=backend_dir.parent / ".env")
@@ -59,8 +60,17 @@ class ConnectionManager:
         if client_id in self.active_connections:
             await self.active_connections[client_id].send_json(data)
 
+    async def broadcast_json(self, data: dict):
+        for connection in self.active_connections.values():
+            try:
+                await connection.send_json(data)
+            except Exception:
+                # Ignore errors on send, connection might be closed
+                pass
+
 
 manager = ConnectionManager()
+scheduler = AsyncIOScheduler()
 
 
 class Node(BaseModel):
@@ -291,76 +301,11 @@ def _find_text_parts(
     return parts
 
 
-@app.post("/email/send")
-async def send_email(email: EmailSchema) -> dict:
+
+
+async def _get_links_from_emails(sender_emails: List[str]) -> List[Dict[str, Any]]:
     """
-    Sends an email using Fastmail JMAP API.
-    """
-    token = os.getenv("FASTMAIL_API_TOKEN")
-    if token:
-        token = token.strip()
-
-    if not token:
-        raise HTTPException(
-            status_code=500, detail="FASTMAIL_API_TOKEN must be set in .env file"
-        )
-
-    try:
-        async with httpx.AsyncClient(
-            headers={"Authorization": f"Bearer {token}"}
-        ) as client:
-            session_res = await client.get("https://api.fastmail.com/jmap/session")
-            session_res.raise_for_status()
-            session = session_res.json()
-            api_url = session["apiUrl"]
-            account_id = session["primaryAccounts"]["urn:ietf:params:jmap:submission"]
-
-            # Get identity
-            identities_res = await _call_jmap(
-                client,
-                api_url,
-                using=["urn:ietf:params:jmap:submission"],
-                calls=[["Identity/get", {"accountId": account_id}, "i1"]],
-            )
-            identity_id = identities_res[0][1]["list"][0]["id"]
-
-            # Create and send email
-            await _call_jmap(
-                client,
-                api_url,
-                using=["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:submission"],
-                calls=[
-                    [
-                        "EmailSubmission/set",
-                        {
-                            "accountId": account_id,
-                            "create": {
-                                "k1": {
-                                    "identityId": identity_id,
-                                    "subject": email.subject,
-                                    "bodyValues": {"1": {"value": email.body}},
-                                    "bodyStructure": {
-                                        "partId": "1",
-                                        "type": "text/plain",
-                                    },
-                                    "to": [{"email": r} for r in email.recipients],
-                                }
-                            },
-                        },
-                        "s1",
-                    ]
-                ],
-            )
-
-        return {"message": "Email has been sent"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
-
-
-@app.get("/scan-emails")
-async def scan_emails(sender_emails: List[str] = Query([])):
-    """
-    Scans emails for WeTransfer links, ignoring previously processed emails.
+    Internal logic to scan emails and return found links.
     """
     log_entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -574,25 +519,33 @@ async def scan_emails(sender_emails: List[str] = Query([])):
     log_entry["links"] = unique_links
     log_entry["message"] = f"Found {len(unique_links)} new WeTransfer links."
     await write_log()
+    return unique_links
+
+
+@app.get("/scan-emails")
+async def scan_emails(sender_emails: List[str] = Query([])):
+    """
+    Scans emails for WeTransfer links, ignoring previously processed emails.
+    """
+    links = await _get_links_from_emails(sender_emails)
     return {
-        "message": f"Found {len(unique_links)} new WeTransfer links.",
-        "links": unique_links,
+        "message": f"Found {len(links)} new WeTransfer links.",
+        "links": links,
     }
 
 
-@app.post("/download")
-async def download_url(request: DownloadRequest):
+async def _download_link(
+    url: str, project_node_id: str | None, client_id: str | None
+):
     """
-    Downloads files from a WeTransfer URL using the transferwee script
-    and logs the download. Prevents re-downloading of the same URL.
-    Streams progress over WebSocket if client_id is provided.
+    Internal logic to download a single link.
     """
-    client_id = request.client_id
-
     async def send_progress(message_type: str, **kwargs):
+        data = {"type": message_type, "url": url, **kwargs}
         if client_id:
-            data = {"type": message_type, "url": request.url, **kwargs}
             await manager.send_json(client_id, data)
+        else:
+            await manager.broadcast_json(data)
 
     await send_progress("status", status="started", message="Download process started.")
 
@@ -609,7 +562,7 @@ async def download_url(request: DownloadRequest):
 
         # Check if URL has already been downloaded
         for entry in log_entries:
-            if entry.get("url") == request.url:
+            if entry.get("url") == url:
                 message = "URL already downloaded"
                 await send_progress(
                     "status",
@@ -617,15 +570,11 @@ async def download_url(request: DownloadRequest):
                     message=message,
                     files=entry.get("files", []),
                 )
-                return {
-                    "message": message,
-                    "url": request.url,
-                    "files": entry.get("files", []),
-                }
+                return
 
         files_before = set(os.listdir(DOWNLOADS_DIR))
         log_entry = {
-            "url": request.url,
+            "url": url,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -637,7 +586,7 @@ async def download_url(request: DownloadRequest):
                 python_executable,
                 str(transferwee_script_path),
                 "download",
-                request.url,
+                url,
                 cwd=DOWNLOADS_DIR,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -690,10 +639,10 @@ async def download_url(request: DownloadRequest):
 
             config = await get_config()
             copied_files = []
-            if request.project_node_id and new_files:
+            if project_node_id and new_files:
                 graph = await get_graph()
                 project_node = next(
-                    (n for n in graph.nodes if n.id == request.project_node_id), None
+                    (n for n in graph.nodes if n.id == project_node_id), None
                 )
 
                 if (
@@ -732,7 +681,7 @@ async def download_url(request: DownloadRequest):
                 json.dump(log_entries, f, indent=2)
 
             response_payload = {
-                "message": f"Download completed for {request.url}",
+                "message": f"Download completed for {url}",
                 "downloaded_files": new_files,
                 "output": stdout,
             }
@@ -742,7 +691,6 @@ async def download_url(request: DownloadRequest):
             await send_progress(
                 "status", status="success", message="Download successful", **response_payload
             )
-            return response_payload
         except Exception as e:
             if isinstance(e, HTTPException):
                 raise e
@@ -753,4 +701,70 @@ async def download_url(request: DownloadRequest):
             with open(DOWNLOAD_LOG_FILE, "w") as f:
                 json.dump(log_entries, f, indent=2)
             await send_progress("status", status="failed", message=error_message)
-            raise HTTPException(status_code=500, detail=error_message)
+            # Don't raise HTTPException in internal function, just log and return
+            print(f"Error downloading {url}: {error_message}")
+
+
+@app.post("/download")
+async def download_url(request: DownloadRequest):
+    """
+    Downloads files from a WeTransfer URL using the transferwee script
+    and logs the download. Prevents re-downloading of the same URL.
+    Streams progress over WebSocket if client_id is provided.
+    """
+    await _download_link(
+        url=request.url,
+        project_node_id=request.project_node_id,
+        client_id=request.client_id,
+    )
+    return {"message": "Download process initiated."}
+
+
+async def scheduled_job():
+    print("Running scheduled scan...")
+    graph = await get_graph()
+
+    email_nodes = {
+        n.id: n.data.get("label") for n in graph.nodes if n.data.get("nodeType") == "email"
+    }
+    project_nodes = {n.id for n in graph.nodes if n.data.get("nodeType") == "project-folder"}
+
+    rules: Dict[str, List[str]] = {}
+    for edge in graph.edges:
+        if edge.source in email_nodes and edge.target in project_nodes:
+            email = email_nodes[edge.source]
+            if email and "@" in email:
+                if email not in rules:
+                    rules[email] = []
+                rules[email].append(edge.target)
+
+    if not rules:
+        print("Scheduler: No rules configured. Skipping.")
+        return
+
+    all_emails = list(rules.keys())
+    found_links = await _get_links_from_emails(all_emails)
+
+    if not found_links:
+        print("Scheduler: No new links found.")
+        return
+
+    print(f"Scheduler: Found {len(found_links)} new links. Starting downloads.")
+    for link in found_links:
+        sender = link["sender"]
+        if sender in rules:
+            for project_id in rules[sender]:
+                await _download_link(
+                    url=link["url"], project_node_id=project_id, client_id=None
+                )
+
+
+@app.on_event("startup")
+async def startup_event():
+    scheduler.add_job(scheduled_job, "interval", minutes=3)
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()

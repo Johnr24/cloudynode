@@ -23,22 +23,9 @@ function App() {
   const ws = useRef(null);
   const clientId = useMemo(() => `client-${Math.random().toString(36).substr(2, 9)}`, []);
 
-  const handleDownload = useCallback((url, projectNodeId) => {
-    if (!projectNodeId) {
-        alert('Project folder not specified for download.');
-        return;
-    }
-    setDownloads(prev => ({ ...prev, [url]: { status: 'starting' } }));
-    fetch('http://localhost:8000/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, project_node_id: projectNodeId, client_id: clientId }),
-    });
-  }, [clientId]);
-
   const nodeTypes = useMemo(() => ({
-    textUpdater: (props) => <TextUpdaterNode {...props} downloads={downloads} projectTypes={projectTypes} />
-  }), [projectTypes, downloads]);
+    textUpdater: (props) => <TextUpdaterNode {...props} projectTypes={projectTypes} />
+  }), [projectTypes]);
 
   useEffect(() => {
     ws.current = new WebSocket(`ws://localhost:8000/ws/progress/${clientId}`);
@@ -101,21 +88,8 @@ function App() {
   }, [nodes, edges, isLoaded]);
 
   const onConnect = useCallback(
-    (params) => {
-      const sourceNode = nodes.find(n => n.id === params.source);
-      const targetNode = nodes.find(n => n.id === params.target);
-
-      if (sourceNode && targetNode) {
-        const isEmailToProject = sourceNode.data.nodeType === 'email' && targetNode.data.nodeType === 'project-folder';
-        const urlToDownload = sourceNode.data.url;
-
-        if (isEmailToProject && urlToDownload) {
-          handleDownload(urlToDownload, targetNode.id);
-        }
-      }
-      setEdges((eds) => addEdge(params, eds));
-    },
-    [nodes, setEdges, handleDownload],
+    (params) => setEdges((eds) => addEdge(params, eds)),
+    [setEdges],
   );
 
   const handleProjectTypeChange = (e) => {
@@ -169,6 +143,20 @@ function App() {
             Turbosort
           </label>
         </div>
+      </div>
+      </div>
+      <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 4, background: 'rgba(255, 255, 255, 0.8)', padding: 10, borderRadius: 5, width: '300px', maxHeight: '50vh', overflowY: 'auto' }}>
+        <h4>Downloads</h4>
+        {Object.keys(downloads).length === 0 ? (
+          <div style={{ fontSize: '12px', color: 'gray' }}>No active downloads.</div>
+        ) : (
+          Object.values(downloads).map(d => (
+            <div key={d.url} style={{ fontSize: '12px', marginBottom: '5px', borderBottom: '1px solid #eee', paddingBottom: '5px' }}>
+              <div style={{ wordBreak: 'break-all' }}><strong>URL:</strong> {d.url}</div>
+              <div><strong>Status:</strong> {d.message || d.status}</div>
+            </div>
+          ))
+        )}
       </div>
       <ReactFlow
         nodes={nodes}
