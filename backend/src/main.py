@@ -360,12 +360,26 @@ async def send_email(email: EmailSchema) -> dict:
 @app.get("/scan-emails")
 async def scan_emails(sender_emails: List[str] = Query([])):
     """
-    Scans unread emails for WeTransfer links and marks them as read.
+    Scans emails for WeTransfer links, ignoring previously processed emails.
     """
     log_entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "status": "started",
     }
+
+    # Load already processed email IDs from the log to avoid reprocessing
+    processed_email_ids = set()
+    if EMAIL_SCAN_LOG_FILE.exists():
+        with open(EMAIL_SCAN_LOG_FILE, "r") as f:
+            try:
+                log_entries = json.load(f)
+                for entry in log_entries:
+                    # For backward compatibility, check old keys too
+                    processed_email_ids.update(entry.get("processed_email_ids", []))
+                    processed_email_ids.update(entry.get("marked_as_read", []))
+                    processed_email_ids.update(entry.get("unread_email_ids", []))
+            except json.JSONDecodeError:
+                pass  # Log file might be empty or corrupted
 
     async def write_log():
         async with log_lock:
@@ -406,36 +420,30 @@ async def scan_emails(sender_emails: List[str] = Query([])):
 
             log_entry["config_sender_emails"] = sender_emails
 
-            filter_condition: Dict[str, Any] = {"notKeyword": "$seen"}
+            if not sender_emails:
+                log_entry["status"] = "success"
+                log_entry["message"] = "No sender emails provided."
+                log_entry["urls"] = []
+                await write_log()
+                return {"message": "No sender emails provided.", "urls": []}
 
-            if sender_emails:
-                from_conditions = []
-                for email in sender_emails:
-                    if email.startswith("*@"):
-                        domain = email[2:]
-                        from_conditions.append({"from": f"@{domain}"})
-                    else:
-                        from_conditions.append({"from": email})
+            from_conditions = []
+            for email in sender_emails:
+                if email.startswith("*@"):
+                    domain = email[2:]
+                    from_conditions.append({"from": f"@{domain}"})
+                else:
+                    from_conditions.append({"from": email})
 
-                # JMAP doesn't support single-condition OR, so handle 1 email separately
-                if len(from_conditions) == 1:
-                    filter_condition = {
-                        "operator": "AND",
-                        "conditions": [{"notKeyword": "$seen"}, from_conditions[0]],
-                    }
-                elif len(from_conditions) > 1:
-                    filter_condition = {
-                        "operator": "AND",
-                        "conditions": [
-                            {"notKeyword": "$seen"},
-                            {"operator": "OR", "conditions": from_conditions},
-                        ],
-                    }
+            if len(from_conditions) == 1:
+                filter_condition: Dict[str, Any] = from_conditions[0]
+            else:
+                filter_condition = {"operator": "OR", "conditions": from_conditions}
 
             log_entry["jmap_filter"] = filter_condition
 
-            # Find unread emails
-            unread_res = await _call_jmap(
+            # Find all matching emails
+            email_query_res = await _call_jmap(
                 client,
                 api_url,
                 using=["urn:ietf:params:jmap:mail"],
@@ -450,15 +458,20 @@ async def scan_emails(sender_emails: List[str] = Query([])):
                     ]
                 ],
             )
-            unread_ids = unread_res[0][1]["ids"]
-            log_entry["unread_email_ids"] = unread_ids
+            all_found_ids = email_query_res[0][1]["ids"]
+            ids_to_process = [
+                eid for eid in all_found_ids if eid not in processed_email_ids
+            ]
 
-            if not unread_ids:
+            log_entry["all_found_ids"] = all_found_ids
+            log_entry["processed_email_ids"] = ids_to_process
+
+            if not ids_to_process:
                 log_entry["status"] = "success"
-                log_entry["message"] = "No unread emails found."
+                log_entry["message"] = "No new emails to process."
                 log_entry["urls"] = []
                 await write_log()
-                return {"message": "No unread emails found.", "urls": []}
+                return {"message": "No new emails to process.", "urls": []}
 
             # Fetch emails
             emails_res = await _call_jmap(
@@ -470,7 +483,7 @@ async def scan_emails(sender_emails: List[str] = Query([])):
                         "Email/get",
                         {
                             "accountId": account_id,
-                            "ids": unread_ids,
+                            "ids": ids_to_process,
                             "properties": [
                                 "id",
                                 "subject",
@@ -528,26 +541,6 @@ async def scan_emails(sender_emails: List[str] = Query([])):
 
             log_entry["scanned_contents"] = scanned_contents
             log_entry["found_urls_before_unique"] = found_urls
-
-            # Mark as read
-            await _call_jmap(
-                client,
-                api_url,
-                using=["urn:ietf:params:jmap:mail"],
-                calls=[
-                    [
-                        "Email/set",
-                        {
-                            "accountId": account_id,
-                            "update": {
-                                id: {"keywords/$seen": True} for id in unread_ids
-                            },
-                        },
-                        "e3",
-                    ]
-                ],
-            )
-            log_entry["marked_as_read"] = unread_ids
 
     except Exception as e:
         log_entry["status"] = "failed"
