@@ -2,10 +2,10 @@ name: Build Frontend
     on:
         push:
             branches:
-            - defuck
+            - trunk
         pull_request:
             branches:
-            - defuck
+            - trunk
 
     jobs:
         build:
