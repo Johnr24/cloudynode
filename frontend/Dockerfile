@@ -1,7 +1,5 @@
 FROM node:24-bookworm AS builder
 
-# Set environment variables
-ENV NODE_ENV=production
 # Set the working directory
 WORKDIR /app
 # Copy the package.json and package-lock.json files
