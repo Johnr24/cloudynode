@@ -1,0 +1,21 @@
+name: node-filegrab
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: dockerfile
+    ports:
+      - "2153:8000"
+    volumes:
+      - ./data:/app/data
+      - .downloads:/app/downloads
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "2154:3000"
+    volumes:
+      - ./frontend:/app
+    depends_on:
+      - backend
