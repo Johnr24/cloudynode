@@ -79,7 +79,7 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
             .then(res => res.json())
             .then(data => {
               // Unify suggestion format
-              setSuggestions(data.urls ? data.urls.map(url => ({ name: url, path: url })) : []);
+              setSuggestions(data.links ? data.links.map(link => ({ name: `${link.url} (from: ${link.sender})`, value: link.url, path: link.url })) : []);
               setLoading(false);
             })
             .catch(() => setLoading(false));
@@ -101,7 +101,7 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
           if (data.nodeType === 'project-folder') {
             node.data = { ...node.data, label: suggestion.name, path: suggestion.path };
           } else { // email node
-            node.data = { ...node.data, label: suggestion.name };
+            node.data = { ...node.data, label: suggestion.value };
           }
         }
         return node;

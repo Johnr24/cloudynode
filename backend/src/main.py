@@ -510,14 +510,19 @@ async def scan_emails(sender_emails: List[str] = Query([])):
             ]
 
             # Extract links
-            found_urls = []
+            found_links = []
             scanned_contents = []
             url_pattern = re.compile(r"https?://(?:we\.tl|wetransfer\.com)/[a-zA-Z0-9\-\_/]+")
             for email in emails:
+                sender_email = (email.get("from") or [{}])[0].get("email")
+                if not sender_email:
+                    continue
+
                 email_bodies = []
                 body_values = email.get("bodyValues", {})
                 text_parts = _find_text_parts(email.get("bodyStructure"))
 
+                urls_in_email = []
                 for part in text_parts:
                     part_id = part["partId"]
                     part_type = part["type"]
@@ -530,17 +535,20 @@ async def scan_emails(sender_emails: List[str] = Query([])):
                             for a in soup.find_all("a", href=True):
                                 href = a["href"]
                                 if url_pattern.match(href):
-                                    found_urls.append(href)
+                                    urls_in_email.append(href)
                         else:  # text/plain
                             urls = url_pattern.findall(body_value)
-                            found_urls.extend(urls)
+                            urls_in_email.extend(urls)
+
+                for url in set(urls_in_email):
+                    found_links.append({"url": url, "sender": sender_email})
 
                 scanned_contents.append(
                     {"email_id": email.get("id"), "bodies": email_bodies}
                 )
 
             log_entry["scanned_contents"] = scanned_contents
-            log_entry["found_urls_before_unique"] = found_urls
+            log_entry["found_urls_before_unique"] = [link["url"] for link in found_links]
 
     except Exception as e:
         log_entry["status"] = "failed"
@@ -548,14 +556,17 @@ async def scan_emails(sender_emails: List[str] = Query([])):
         await write_log()
         raise HTTPException(status_code=500, detail=f"Failed to scan emails: {e}")
 
-    unique_urls = sorted(list(set(found_urls)))
+    unique_links_dict = {link["url"]: link for link in reversed(found_links)}
+    unique_links = sorted(list(unique_links_dict.values()), key=lambda x: x["url"])
+
     log_entry["status"] = "success"
-    log_entry["urls"] = unique_urls
-    log_entry["message"] = f"Found {len(unique_urls)} new WeTransfer links."
+    log_entry["urls"] = [link["url"] for link in unique_links]
+    log_entry["links"] = unique_links
+    log_entry["message"] = f"Found {len(unique_links)} new WeTransfer links."
     await write_log()
     return {
-        "message": f"Found {len(unique_urls)} new WeTransfer links.",
-        "urls": unique_urls,
+        "message": f"Found {len(unique_links)} new WeTransfer links.",
+        "links": unique_links,
     }
 
 
