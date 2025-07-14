@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
 
-function TextUpdaterNode({ id, data, projectTypes = [], onScan }) {
+function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
   const { setNodes } = useReactFlow();
   const [isEditing, setIsEditing] = useState(false);
   const [label, setLabel] = useState(data.label);
@@ -46,16 +46,21 @@ function TextUpdaterNode({ id, data, projectTypes = [], onScan }) {
     }
   }, [isEditing]);
 
-  // Debounced search for project folders
+  // Debounced search for suggestions
   useEffect(() => {
-    if (data.nodeType !== 'project-folder' || !isEditing) {
+    if (!isEditing) {
       setSuggestions([]);
       return;
     }
 
     const handler = setTimeout(() => {
-      if (label) {
-        setLoading(true);
+      if (!label) {
+        setSuggestions([]);
+        return;
+      }
+      setLoading(true);
+
+      if (data.nodeType === 'project-folder') {
         const typesQuery = projectTypes.length > 0 ? `&types=${projectTypes.join('&types=')}` : '';
         fetch(`http://localhost:8000/projects/discover?name=${encodeURIComponent(label)}${typesQuery}`)
           .then(res => res.json())
@@ -64,22 +69,40 @@ function TextUpdaterNode({ id, data, projectTypes = [], onScan }) {
             setLoading(false);
           })
           .catch(() => setLoading(false));
-      } else {
-        setSuggestions([]);
+      } else if (data.nodeType === 'email') {
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        // Only scan if the original label was an email, not a URL
+        if (emailPattern.test(data.label)) {
+          const params = new URLSearchParams();
+          params.append('sender_emails', data.label);
+          fetch(`http://localhost:8000/scan-emails?${params.toString()}`)
+            .then(res => res.json())
+            .then(data => {
+              // Unify suggestion format
+              setSuggestions(data.urls ? data.urls.map(url => ({ name: url, path: url })) : []);
+              setLoading(false);
+            })
+            .catch(() => setLoading(false));
+        } else {
+          setLoading(false);
+        }
       }
     }, 300);
 
     return () => {
       clearTimeout(handler);
     };
-  }, [label, data.nodeType, isEditing, projectTypes]);
+  }, [label, data.nodeType, data.label, isEditing, projectTypes]);
 
-  const handleSelectSuggestion = (project) => {
+  const handleSelectSuggestion = (suggestion) => {
     setNodes((nodes) =>
       nodes.map((node) => {
         if (node.id === id) {
-          // When selecting, update label and path
-          node.data = { ...node.data, label: project.name, path: project.path };
+          if (data.nodeType === 'project-folder') {
+            node.data = { ...node.data, label: suggestion.name, path: suggestion.path };
+          } else { // email node
+            node.data = { ...node.data, label: suggestion.name };
+          }
         }
         return node;
       })
@@ -101,14 +124,14 @@ function TextUpdaterNode({ id, data, projectTypes = [], onScan }) {
               onBlur={handleBlur}
               onKeyDown={handleKeyDown}
             />
-            {data.nodeType === 'project-folder' && (
+            {(data.nodeType === 'project-folder' || data.nodeType === 'email') && (
               <>
                 {loading && <div style={{ fontSize: '10px', color: 'gray' }}>Loading...</div>}
                 {suggestions.length > 0 && (
-                  <ul style={{ position: 'absolute', listStyle: 'none', padding: 0, margin: 0, background: 'white', border: '1px solid #ccc', zIndex: 10 }}>
-                    {suggestions.map(project => (
-                      <li key={project.path} onMouseDown={() => handleSelectSuggestion(project)} style={{ padding: '2px 4px', cursor: 'pointer' }}>
-                        {project.name} ({project.type})
+                  <ul style={{ position: 'absolute', listStyle: 'none', padding: 0, margin: 0, background: 'white', border: '1px solid #ccc', zIndex: 10, width: '200px' }}>
+                    {suggestions.map(suggestion => (
+                      <li key={suggestion.path} onMouseDown={() => handleSelectSuggestion(suggestion)} style={{ padding: '2px 4px', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {suggestion.name} {suggestion.type ? `(${suggestion.type})` : ''}
                       </li>
                     ))}
                   </ul>
@@ -117,14 +140,16 @@ function TextUpdaterNode({ id, data, projectTypes = [], onScan }) {
             )}
           </div>
         ) : (
-          <div>{data.label}</div>
+          <div>
+            <div>{data.label}</div>
+            {data.nodeType === 'email' && downloads[data.label] && (
+              <div style={{ fontSize: '10px', color: downloads[data.label].status === 'failed' ? 'red' : 'gray' }}>
+                Status: {downloads[data.label].message || downloads[data.label].status}
+              </div>
+            )}
+          </div>
         )}
       </div>
-      {data.nodeType === 'project-folder' && (
-        <button onClick={() => onScan(id)} style={{ marginTop: '5px', width: '100%' }}>
-          Scan
-        </button>
-      )}
       {data.nodeType === 'email' && <Handle type="source" position={Position.Bottom} />}
     </>
   );

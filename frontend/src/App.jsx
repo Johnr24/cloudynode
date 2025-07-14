@@ -19,47 +19,9 @@ function App() {
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [projectTypes, setProjectTypes] = useState(['livework', 'turbosort']);
-  const [foundUrls, setFoundUrls] = useState([]);
-  const [isScanning, setIsScanning] = useState(false);
   const [downloads, setDownloads] = useState({});
   const ws = useRef(null);
   const clientId = useMemo(() => `client-${Math.random().toString(36).substr(2, 9)}`, []);
-
-  const handleScanEmails = useCallback(async (projectNodeId) => {
-    setIsScanning(true);
-    setFoundUrls([]);
-
-    // Find connected email nodes
-    const sourceEdges = edges.filter(edge => edge.target === projectNodeId);
-    const sourceNodeIds = sourceEdges.map(edge => edge.source);
-    const emailNodes = nodes.filter(node => sourceNodeIds.includes(node.id) && node.data.nodeType === 'email');
-    const senderEmails = emailNodes.map(node => node.data.label);
-
-    if (senderEmails.length === 0) {
-        alert('No email nodes connected to this project folder.');
-        setIsScanning(false);
-        return;
-    }
-
-    try {
-        const params = new URLSearchParams();
-        senderEmails.forEach(email => params.append('sender_emails', email));
-        const response = await fetch(`http://localhost:8000/scan-emails?${params.toString()}`);
-        const data = await response.json();
-        if (response.ok) {
-            // Associate found URLs with the project folder they were scanned for
-            setFoundUrls(data.urls.map(url => ({ url, projectNodeId })));
-            if (data.urls.length === 0) {
-                alert('No new WeTransfer links found.');
-            }
-        } else {
-            alert(`Error: ${data.detail}`);
-        }
-    } catch (error) {
-        alert(`Error scanning emails: ${error.message}`);
-    }
-    setIsScanning(false);
-  }, [nodes, edges]);
 
   const handleDownload = useCallback((url, projectNodeId) => {
     if (!projectNodeId) {
@@ -75,8 +37,8 @@ function App() {
   }, [clientId]);
 
   const nodeTypes = useMemo(() => ({
-    textUpdater: (props) => <TextUpdaterNode {...props} onScan={handleScanEmails} projectTypes={projectTypes} />
-  }), [projectTypes, handleScanEmails]);
+    textUpdater: (props) => <TextUpdaterNode {...props} downloads={downloads} projectTypes={projectTypes} />
+  }), [projectTypes, downloads]);
 
   useEffect(() => {
     ws.current = new WebSocket(`ws://localhost:8000/ws/progress/${clientId}`);
@@ -139,8 +101,22 @@ function App() {
   }, [nodes, edges, isLoaded]);
 
   const onConnect = useCallback(
-    (params) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges],
+    (params) => {
+      const sourceNode = nodes.find(n => n.id === params.source);
+      const targetNode = nodes.find(n => n.id === params.target);
+
+      if (sourceNode && targetNode) {
+        const isEmailToProject = sourceNode.data.nodeType === 'email' && targetNode.data.nodeType === 'project-folder';
+        const urlPattern = /https?:\/\/(we\.tl|wetransfer\.com)\/[a-zA-Z0-9\-\/_]+/;
+        const isUrl = urlPattern.test(sourceNode.data.label);
+
+        if (isEmailToProject && isUrl) {
+          handleDownload(sourceNode.data.label, targetNode.id);
+        }
+      }
+      setEdges((eds) => addEdge(params, eds));
+    },
+    [nodes, setEdges, handleDownload],
   );
 
   const handleProjectTypeChange = (e) => {
@@ -194,34 +170,6 @@ function App() {
             Turbosort
           </label>
         </div>
-        {isScanning && <div style={{ marginTop: 5 }}>Scanning...</div>}
-        {foundUrls.length > 0 && (
-          <div style={{ marginTop: 10, background: 'rgba(255, 255, 255, 0.9)', padding: 10, border: '1px solid #ccc', borderRadius: 5, maxHeight: '300px', overflowY: 'auto' }}>
-              <h4>Found WeTransfer Links</h4>
-              {foundUrls.map(({ url, projectNodeId }) => {
-                  const downloadStatus = downloads[url];
-                  const projectNode = nodes.find(n => n.id === projectNodeId);
-                  return (
-                      <div key={url} style={{ marginBottom: 5, padding: 5, border: '1px solid #eee', borderRadius: 3 }}>
-                          <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px' }}>{url.substring(0, 40)}...</a>
-                          <div style={{ fontSize: '12px' }}>To: {projectNode ? projectNode.data.label : 'Unknown Project'}</div>
-                          <button
-                              onClick={() => handleDownload(url, projectNodeId)}
-                              style={{ marginLeft: 5 }}
-                              disabled={!projectNodeId || (downloadStatus && downloadStatus.status !== 'skipped' && downloadStatus.status !== 'failed')}
-                          >
-                              Download
-                          </button>
-                          {downloadStatus && (
-                              <div style={{ fontSize: '12px', marginLeft: 5, marginTop: 3, color: downloadStatus.status === 'failed' ? 'red' : 'inherit' }}>
-                                  Status: {downloadStatus.message || downloadStatus.status}
-                              </div>
-                          )}
-                      </div>
-                  );
-              })}
-          </div>
-        )}
       </div>
       <ReactFlow
         nodes={nodes}
