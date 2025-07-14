@@ -698,7 +698,7 @@ async def _download_link(
                 response_payload["copied_files"] = copied_files
 
             await send_progress(
-                "status", status="success", message="Download successful", **response_payload
+                "status", status="success", **response_payload
             )
         except Exception as e:
             if isinstance(e, HTTPException):
