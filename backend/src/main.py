@@ -499,16 +499,16 @@ async def _download_link(
     url: str, project_node_id: str | None, client_id: str | None
 ):
     """
-    Internal logic to download a single link.
+    Internal logic to download a single link and copy to project folder.
+    A link is downloaded once. It can be copied to multiple project folders.
     """
+
     async def send_progress(message_type: str, **kwargs):
         data = {"type": message_type, "url": url, **kwargs}
         if client_id:
             await manager.send_json(client_id, data)
         else:
             await manager.broadcast_json(data)
-
-    await send_progress("status", status="started", message="Download process started.")
 
     async with log_lock:
         # Load existing log
@@ -521,145 +521,151 @@ async def _download_link(
         else:
             log_entries = []
 
-        # Check if URL has already been downloaded
-        for entry in log_entries:
-            if entry.get("url") == url:
-                message = "URL already downloaded"
-                await send_progress(
-                    "status",
-                    status="skipped",
-                    message=message,
-                    files=entry.get("files", []),
-                )
-                return
+        log_entry = next((e for e in log_entries if e.get("url") == url), None)
 
-        files_before = set(os.listdir(DOWNLOADS_DIR))
-        log_entry = {
-            "url": url,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-        try:
-            transferwee_script_path = transferwee_dir / "transferwee.py"
-            python_executable = sys.executable
-
-            proc = await asyncio.create_subprocess_exec(
-                python_executable,
-                str(transferwee_script_path),
-                "download",
-                url,
-                cwd=DOWNLOADS_DIR,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        # --- Download Step ---
+        if not log_entry:
+            await send_progress(
+                "status", status="started", message="Download process started."
             )
-
-            stdout_lines = []
-            if proc.stdout:
-                async for line in proc.stdout:
-                    decoded_line = line.decode().strip()
-                    stdout_lines.append(decoded_line)
-                    await send_progress("log", message=decoded_line)
-
-            stderr_lines = []
-            if proc.stderr:
-                async for line in proc.stderr:
-                    decoded_line = line.decode().strip()
-                    stderr_lines.append(decoded_line)
-                    await send_progress("log", message=f"ERROR: {decoded_line}")
-
-            await proc.wait()
-
-            stdout = "\n".join(stdout_lines)
-            stderr = "\n".join(stderr_lines)
-
-            log_entry["transferwee_output"] = {
-                "returncode": proc.returncode,
-                "stdout": stdout,
-                "stderr": stderr,
+            files_before = set(os.listdir(DOWNLOADS_DIR))
+            new_log_entry = {
+                "url": url,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "copied_to_projects": [],
             }
 
-            if proc.returncode != 0:
-                error_message = f"Download failed: {stderr or stdout}"
-                log_entry["status"] = "failed"
-                log_entry["error_message"] = error_message
-                log_entries.append(log_entry)
+            try:
+                transferwee_script_path = transferwee_dir / "transferwee.py"
+                python_executable = sys.executable
+
+                proc = await asyncio.create_subprocess_exec(
+                    python_executable,
+                    str(transferwee_script_path),
+                    "download",
+                    url,
+                    cwd=DOWNLOADS_DIR,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+
+                stdout_lines = []
+                if proc.stdout:
+                    async for line in proc.stdout:
+                        decoded_line = line.decode().strip()
+                        stdout_lines.append(decoded_line)
+                        await send_progress("log", message=decoded_line)
+
+                stderr_lines = []
+                if proc.stderr:
+                    async for line in proc.stderr:
+                        decoded_line = line.decode().strip()
+                        stderr_lines.append(decoded_line)
+                        await send_progress("log", message=f"ERROR: {decoded_line}")
+
+                await proc.wait()
+
+                stdout = "\n".join(stdout_lines)
+                stderr = "\n".join(stderr_lines)
+
+                new_log_entry["transferwee_output"] = {
+                    "returncode": proc.returncode,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                }
+
+                if proc.returncode != 0:
+                    error_message = f"Download failed: {stderr or stdout}"
+                    new_log_entry["status"] = "failed"
+                    new_log_entry["error_message"] = error_message
+                    log_entries.append(new_log_entry)
+                    with open(DOWNLOAD_LOG_FILE, "w") as f:
+                        json.dump(log_entries, f, indent=2)
+                    await send_progress(
+                        "status", status="failed", message=error_message
+                    )
+                    return  # Stop if download fails
+
+                files_after = set(os.listdir(DOWNLOADS_DIR))
+                new_files = sorted(list(files_after - files_before))
+
+                new_log_entry["status"] = "success"
+                new_log_entry["files"] = new_files
+                new_log_entry["file_details"] = [
+                    {"name": f, "size": os.path.getsize(DOWNLOADS_DIR / f)}
+                    for f in new_files
+                ]
+                log_entries.append(new_log_entry)
+                log_entry = new_log_entry
+
+                response_payload = {
+                    "message": f"Download completed for {url}",
+                    "downloaded_files": new_files,
+                    "output": stdout,
+                }
+                await send_progress("status", status="success", **response_payload)
+
+            except Exception as e:
+                error_message = f"An unexpected error occurred: {e}"
+                new_log_entry["status"] = "failed"
+                new_log_entry["error_message"] = error_message
+                log_entries.append(new_log_entry)
                 with open(DOWNLOAD_LOG_FILE, "w") as f:
                     json.dump(log_entries, f, indent=2)
                 await send_progress("status", status="failed", message=error_message)
-                raise HTTPException(status_code=500, detail=error_message)
-
-            files_after = set(os.listdir(DOWNLOADS_DIR))
-            new_files = sorted(list(files_after - files_before))
-
-            log_entry["status"] = "success"
-            log_entry["files"] = new_files
-            log_entry["file_details"] = [
-                {"name": f, "size": os.path.getsize(DOWNLOADS_DIR / f)}
-                for f in new_files
-            ]
-
-            copied_files = []
-            if project_node_id and new_files:
-                graph = await get_graph()
-                project_node = next(
-                    (n for n in graph.nodes if n.id == project_node_id), None
-                )
-
-                if project_node and project_node.data.get("label"):
-                    project_folder_name = project_node.data["label"]
-                    project_type = project_node.data.get("projectType", "turbosort")
-                    dest_dir = DOWNLOADS_DIR / project_folder_name
-
-                    try:
-                        dest_dir.mkdir(parents=True, exist_ok=True)
-
-                        # Create .turbosort file with project name as content
-                        turbosort_file_path = dest_dir / ".turbosort"
-                        with open(turbosort_file_path, "w") as f:
-                            f.write(project_folder_name)
-
-                        for file_name in new_files:
-                            source_path = DOWNLOADS_DIR / file_name
-                            dest_path = dest_dir / file_name
-                            shutil.move(str(source_path), str(dest_path))
-                            copied_files.append(str(dest_path))
-                        log_entry["moved_to"] = copied_files
-                        await send_progress(
-                            "log", message=f"Moved files to {dest_dir}"
-                        )
-                    except Exception as e:
-                        log_entry["move_error"] = f"Failed to move files: {e}"
-                        await send_progress(
-                            "log", message=f"ERROR: Failed to move files: {e}"
-                        )
-
-            log_entries.append(log_entry)
-            with open(DOWNLOAD_LOG_FILE, "w") as f:
-                json.dump(log_entries, f, indent=2)
-
-            response_payload = {
-                "message": f"Download completed for {url}",
-                "downloaded_files": new_files,
-                "output": stdout,
-            }
-            if copied_files:
-                response_payload["copied_files"] = copied_files
-
+                print(f"Error downloading {url}: {error_message}")
+                return
+        else:
             await send_progress(
-                "status", status="success", **response_payload
+                "status",
+                status="skipped",
+                message="URL already downloaded",
+                files=log_entry.get("files", []),
             )
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
-            error_message = f"An unexpected error occurred: {e}"
-            log_entry["status"] = "failed"
-            log_entry["error_message"] = error_message
-            log_entries.append(log_entry)
-            with open(DOWNLOAD_LOG_FILE, "w") as f:
-                json.dump(log_entries, f, indent=2)
-            await send_progress("status", status="failed", message=error_message)
-            # Don't raise HTTPException in internal function, just log and return
-            print(f"Error downloading {url}: {error_message}")
+
+        # --- Copy Step ---
+        if (
+            project_node_id
+            and log_entry
+            and log_entry.get("status") == "success"
+            and project_node_id not in log_entry.get("copied_to_projects", [])
+        ):
+            graph = await get_graph()
+            project_node = next(
+                (n for n in graph.nodes if n.id == project_node_id), None
+            )
+            files_to_copy = log_entry.get("files", [])
+
+            if project_node and project_node.data.get("label") and files_to_copy:
+                project_folder_name = project_node.data["label"]
+                dest_dir = DOWNLOADS_DIR / project_folder_name
+
+                try:
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    turbosort_file_path = dest_dir / ".turbosort"
+                    with open(turbosort_file_path, "w") as f:
+                        f.write(project_folder_name)
+
+                    for file_name in files_to_copy:
+                        source_path = DOWNLOADS_DIR / file_name
+                        if source_path.exists():
+                            dest_path = dest_dir / file_name
+                            shutil.copy2(str(source_path), str(dest_path))
+
+                    log_entry.setdefault("copied_to_projects", []).append(
+                        project_node_id
+                    )
+                    await send_progress(
+                        "log", message=f"Copied files to {dest_dir}"
+                    )
+                except Exception as e:
+                    await send_progress(
+                        "log", message=f"ERROR: Failed to copy files: {e}"
+                    )
+
+        # Write final state of log back to file
+        with open(DOWNLOAD_LOG_FILE, "w") as f:
+            json.dump(log_entries, f, indent=2)
 
 
 @app.post("/download")
