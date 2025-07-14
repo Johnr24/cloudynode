@@ -611,10 +611,10 @@ async def _download_link(
                     try:
                         dest_dir.mkdir(parents=True, exist_ok=True)
 
-                        # Create .turbosort file with project type as content
+                        # Create .turbosort file with project name as content
                         turbosort_file_path = dest_dir / ".turbosort"
                         with open(turbosort_file_path, "w") as f:
-                            f.write(project_type)
+                            f.write(project_folder_name)
 
                         for file_name in new_files:
                             source_path = DOWNLOADS_DIR / file_name
