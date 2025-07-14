@@ -80,7 +80,7 @@ function TextUpdaterNode({ id, data, projectTypes = [] }) {
       nodes.map((node) => {
         if (node.id === id) {
           if (data.nodeType === 'project-folder') {
-            node.data = { ...node.data, label: suggestion.name, path: suggestion.path };
+            node.data = { ...node.data, label: suggestion.name, path: suggestion.path, projectType: suggestion.type };
           }
         }
         return node;

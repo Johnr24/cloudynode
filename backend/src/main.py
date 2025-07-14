@@ -655,18 +655,19 @@ async def _download_link(
                     and config.download_directory
                 ):
                     project_folder_name = project_node.data["label"]
+                    project_type = project_node.data.get("projectType", "turbosort")
                     dest_dir = (
                         Path(config.download_directory)
                         / project_folder_name
-                        / "turbosort"
+                        / project_type
                     )
 
                     try:
                         dest_dir.mkdir(parents=True, exist_ok=True)
 
-                        # Create .turbosort file
-                        turbosort_file_path = dest_dir / ".turbosort"
-                        with open(turbosort_file_path, "w") as f:
+                        # Create .<type> file
+                        type_file_path = dest_dir / f".{project_type}"
+                        with open(type_file_path, "w") as f:
                             f.write(project_folder_name)
 
                         for file_name in new_files:
