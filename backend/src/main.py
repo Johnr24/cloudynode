@@ -38,10 +38,8 @@ DOWNLOADS_DIR.mkdir(exist_ok=True)
 DOWNLOAD_LOG_FILE = backend_dir / "download.log.json"
 EMAIL_SCAN_LOG_FILE = backend_dir / "email_scan.log.json"
 GRAPH_STATE_FILE = backend_dir / "graph.json"
-CONFIG_FILE = backend_dir / "config.json"
 log_lock = asyncio.Lock()
 graph_lock = asyncio.Lock()
-config_lock = asyncio.Lock()
 
 
 class ConnectionManager:
@@ -120,49 +118,6 @@ class DownloadRequest(BaseModel):
     project_node_id: str | None = None
 
 
-class Config(BaseModel):
-    sender_emails: List[str] = []
-    download_directory: str | None = None
-
-
-class EmailSchema(BaseModel):
-    recipients: list[EmailStr]
-    subject: str
-    body: str
-
-
-async def get_config() -> Config:
-    async with config_lock:
-        if not CONFIG_FILE.exists():
-            return Config()
-        with open(CONFIG_FILE, "r") as f:
-            try:
-                return Config(**json.load(f))
-            except (json.JSONDecodeError, TypeError):
-                return Config()
-
-
-async def save_config(config: Config):
-    async with config_lock:
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(config.dict(), f, indent=2)
-
-
-@app.get("/config", response_model=Config)
-async def get_config_endpoint():
-    """
-    Retrieves the application configuration.
-    """
-    return await get_config()
-
-
-@app.post("/config")
-async def save_config_endpoint(config: Config):
-    """
-    Saves the application configuration.
-    """
-    await save_config(config)
-    return {"message": "Configuration saved"}
 
 
 @app.get("/")
@@ -641,7 +596,6 @@ async def _download_link(
                 for f in new_files
             ]
 
-            config = await get_config()
             copied_files = []
             if project_node_id and new_files:
                 graph = await get_graph()
@@ -649,14 +603,10 @@ async def _download_link(
                     (n for n in graph.nodes if n.id == project_node_id), None
                 )
 
-                if (
-                    project_node
-                    and project_node.data.get("label")
-                    and config.download_directory
-                ):
+                if project_node and project_node.data.get("label"):
                     project_folder_name = project_node.data["label"]
                     project_type = project_node.data.get("projectType", "turbosort")
-                    dest_dir = Path(config.download_directory) / project_folder_name
+                    dest_dir = DOWNLOADS_DIR / project_folder_name
 
                     try:
                         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -669,16 +619,16 @@ async def _download_link(
                         for file_name in new_files:
                             source_path = DOWNLOADS_DIR / file_name
                             dest_path = dest_dir / file_name
-                            shutil.copy2(source_path, dest_path)
+                            shutil.move(str(source_path), str(dest_path))
                             copied_files.append(str(dest_path))
-                        log_entry["copied_to"] = copied_files
+                        log_entry["moved_to"] = copied_files
                         await send_progress(
-                            "log", message=f"Copied files to {dest_dir}"
+                            "log", message=f"Moved files to {dest_dir}"
                         )
                     except Exception as e:
-                        log_entry["copy_error"] = f"Failed to copy files: {e}"
+                        log_entry["move_error"] = f"Failed to move files: {e}"
                         await send_progress(
-                            "log", message=f"ERROR: Failed to copy files: {e}"
+                            "log", message=f"ERROR: Failed to move files: {e}"
                         )
 
             log_entries.append(log_entry)
