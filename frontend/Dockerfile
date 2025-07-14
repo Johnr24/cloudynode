@@ -1,15 +1,15 @@
-FROM node22.11.0-slim AS builder
+FROM node:24-bookworm AS builder
 
 # Set environment variables
 ENV NODE_ENV=production
 # Set the working directory
 WORKDIR /app
 # Copy the package.json and package-lock.json files
-COPY package.json package-lock.json /app/
+COPY package.json /app/
+# Copy the application code
+COPY .* /app
 # Install dependencies
 RUN npm install --production
-# Copy the application code
-COPY . /app
 # Build the application
 RUN npm run build
 # Set the working directory for the production build
