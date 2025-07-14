@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+.gitmodules
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.env
+.venv
+venv/
+
+# Runtime data
+data/
+downloads/
+
+# IDE files
+.idea/
+.vscode/
