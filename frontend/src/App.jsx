@@ -42,11 +42,9 @@ function App() {
     }
 
     try {
-        const response = await fetch('http://localhost:8000/scan-emails', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sender_emails: senderEmails }),
-        });
+        const params = new URLSearchParams();
+        senderEmails.forEach(email => params.append('sender_emails', email));
+        const response = await fetch(`http://localhost:8000/scan-emails?${params.toString()}`);
         const data = await response.json();
         if (response.ok) {
             // Associate found URLs with the project folder they were scanned for
