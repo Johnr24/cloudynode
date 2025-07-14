@@ -730,6 +730,41 @@ async def scheduled_job():
                 url=link["url"], project_node_id=project_id, client_id=None
             )
 
+        # After processing all projects for a link, delete the original files
+        async with log_lock:
+            if DOWNLOAD_LOG_FILE.exists():
+                with open(DOWNLOAD_LOG_FILE, "r") as f:
+                    try:
+                        log_entries = json.load(f)
+                    except json.JSONDecodeError:
+                        log_entries = []
+            else:
+                log_entries = []
+
+            log_entry = next((e for e in log_entries if e.get("url") == link["url"]), None)
+
+            if (
+                log_entry
+                and log_entry.get("status") == "success"
+                and not log_entry.get("originals_deleted")
+            ):
+                files_to_delete = log_entry.get("files", [])
+                all_deleted = True
+                for file_name in files_to_delete:
+                    source_path = DOWNLOADS_DIR / file_name
+                    if source_path.is_file():
+                        try:
+                            os.remove(source_path)
+                            print(f"Deleted original file: {source_path}")
+                        except Exception as e:
+                            all_deleted = False
+                            print(f"Error deleting original file {source_path}: {e}")
+
+                if all_deleted:
+                    log_entry["originals_deleted"] = True
+                    with open(DOWNLOAD_LOG_FILE, "w") as f:
+                        json.dump(log_entries, f, indent=2)
+
 
 @app.on_event("startup")
 async def startup_event():
