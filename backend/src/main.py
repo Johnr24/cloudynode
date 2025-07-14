@@ -203,7 +203,7 @@ async def discover_projects(
 ):
     """
     Retrieves a list of discovered projects from ProjectZeus.
-    PROJECTZEUS_ADDRESS should be set to the root of the API (e.g., http://host/api).
+    PROJECTZEUS_ADDRESS should be set to the host and port (e.g., http://host:port).
     """
     projectzeus_address = os.getenv("PROJECTZEUS_ADDRESS")
     if not projectzeus_address:
@@ -213,7 +213,7 @@ async def discover_projects(
 
     try:
         async with httpx.AsyncClient() as client:
-            url = f"{projectzeus_address.rstrip('/')}/projects"
+            url = f"{projectzeus_address.rstrip('/')}/api/projects"
             print(f"Contacting ProjectZeus at: {url}")
             response = await client.get(url)
             response.raise_for_status()
@@ -370,7 +370,7 @@ async def _get_links_from_emails(sender_emails: List[str]) -> List[Dict[str, Any
                 log_entry["message"] = "No sender emails provided."
                 log_entry["urls"] = []
                 await write_log()
-                return {"message": "No sender emails provided.", "urls": []}
+                return []
 
             from_conditions = []
             for email in sender_emails:
@@ -416,7 +416,7 @@ async def _get_links_from_emails(sender_emails: List[str]) -> List[Dict[str, Any
                 log_entry["message"] = "No new emails to process."
                 log_entry["urls"] = []
                 await write_log()
-                return {"message": "No new emails to process.", "urls": []}
+                return []
 
             # Fetch emails
             emails_res = await _call_jmap(

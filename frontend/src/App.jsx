@@ -144,7 +144,6 @@ function App() {
           </label>
         </div>
       </div>
-      </div>
       <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 4, background: 'rgba(255, 255, 255, 0.8)', padding: 10, borderRadius: 5, width: '300px', maxHeight: '50vh', overflowY: 'auto' }}>
         <h4>Downloads</h4>
         {Object.keys(downloads).length === 0 ? (
