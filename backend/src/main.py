@@ -204,6 +204,7 @@ async def discover_projects(
     try:
         async with httpx.AsyncClient() as client:
             url = f"{projectzeus_address.rstrip('/')}/projects"
+            print(f"Contacting ProjectZeus at: {url}")
             response = await client.get(url)
             response.raise_for_status()
             projects_data = response.json()
