@@ -709,11 +709,20 @@ async def scheduled_job():
     print(f"Scheduler: Found {len(found_links)} new links. Starting downloads.")
     for link in found_links:
         sender = link["sender"]
-        if sender in rules:
-            for project_id in rules[sender]:
-                await _download_link(
-                    url=link["url"], project_node_id=project_id, client_id=None
-                )
+        project_ids_for_link = set()
+
+        for rule_email, project_ids in rules.items():
+            # Exact match
+            if rule_email == sender:
+                project_ids_for_link.update(project_ids)
+            # Wildcard match
+            elif rule_email.startswith("*@") and sender.endswith(rule_email[1:]):
+                project_ids_for_link.update(project_ids)
+
+        for project_id in project_ids_for_link:
+            await _download_link(
+                url=link["url"], project_node_id=project_id, client_id=None
+            )
 
 
 @app.on_event("startup")
