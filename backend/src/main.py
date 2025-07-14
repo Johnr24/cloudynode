@@ -207,6 +207,14 @@ async def discover_projects(
             response = await client.get(url)
             response.raise_for_status()
             projects_data = response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "ProjectZeus returned an error: "
+                f"status_code={e.response.status_code}, response={e.response.text}"
+            ),
+        )
     except httpx.RequestError as e:
         raise HTTPException(
             status_code=502, detail=f"Could not connect to ProjectZeus: {e}"
