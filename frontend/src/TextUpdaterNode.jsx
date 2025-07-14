@@ -79,7 +79,13 @@ function TextUpdaterNode({ id, data, projectTypes = [], downloads = {} }) {
             .then(res => res.json())
             .then(data => {
               // Unify suggestion format
-              setSuggestions(data.links ? data.links.map(link => ({ name: `${link.url} (from: ${link.sender})`, value: link.url, path: link.url, sender: link.sender })) : []);
+              setSuggestions(data.links ? data.links.map(link => {
+                let name = `${link.subject} (from: ${link.sender})`;
+                if (link.totalLinks > 1) {
+                  name += ` [${link.linkIndex}/${link.totalLinks}]`;
+                }
+                return { name, value: link.url, path: link.url, sender: link.sender };
+              }) : []);
               setLoading(false);
             })
             .catch(() => setLoading(false));

@@ -540,8 +540,18 @@ async def scan_emails(sender_emails: List[str] = Query([])):
                             urls = url_pattern.findall(body_value)
                             urls_in_email.extend(urls)
 
-                for url in set(urls_in_email):
-                    found_links.append({"url": url, "sender": sender_email})
+                unique_urls = sorted(list(set(urls_in_email)))
+                for i, url in enumerate(unique_urls):
+                    found_links.append(
+                        {
+                            "url": url,
+                            "sender": sender_email,
+                            "subject": email.get("subject", "No Subject"),
+                            "emailId": email.get("id"),
+                            "linkIndex": i + 1,
+                            "totalLinks": len(unique_urls),
+                        }
+                    )
 
                 scanned_contents.append(
                     {"email_id": email.get("id"), "bodies": email_bodies}
