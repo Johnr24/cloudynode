@@ -1,12 +1,16 @@
-# ☁️🥰 Node
+# ☁️🥰 CloudyNode 🥰☁️
 
 
-## The Problem
+# The Problem
 
 
-Clients Send you wetransfer links, you have to manually download them, this takes up time in your mornings and should be possible to do be more programatic, 
+Clients Send you wetransfer links, you have to manually download them, this takes up time in your mornings, you spend time managing files, which could be done systematically, should be possible to do be more programatic, 
 
 
-## The Plan
-![The Plan](https://github.com/Johnr24/cloudynode/blob/trunk/readme/nathan.png)
-A Wetransfer automated downloader using
+
+# The Plan
+<img src="readme/nathan.png" alt="image" class="custom-image" width=500>
+
+A Wetransfer automated downloader using transferwee 
+
+That is configured using nodes 🥹! just like grading in davinci resolve
