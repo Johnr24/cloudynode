@@ -77,3 +77,7 @@ CloudyNode consists of two main parts:
     -   The backend will periodically scan for new emails from the configured senders. When a new email with a WeTransfer link is found, the download will begin automatically.
 
 Now, any WeTransfer links from that sender will be downloaded and saved into the specified project folder. Enjoy your new automated workflow!
+
+
+This Repo pairs Perfectly with Sister Repo Project Zeus - https://github.com/Johnr24/ProjectZeus
+<img src = "https://github.com/Johnr24/ProjectZeus/blob/main/projectzeus.gif?raw=true">
