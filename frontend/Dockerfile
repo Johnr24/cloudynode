@@ -16,16 +16,18 @@ FROM nginx:stable-alpine
 # Copy built assets from the builder stage                                              
 COPY --from=builder /app/dist /usr/share/nginx/html                                     
                                                                                         
-# Remove default Nginx config and add custom config to serve SPA on port 3000           
-RUN rm /etc/nginx/conf.d/default.conf                                                   
-RUN echo "server { \n\                                                                  
-    listen 3000; \n\                                                                    
-    location / { \n\                                                                    
-        root /usr/share/nginx/html; \n\                                                 
-        index index.html; \n\                                                           
-        try_files \$uri \$uri/ /index.html; \n\                                         
-    } \n\                                                                               
-}" > /etc/nginx/conf.d/app.conf                                                         
+# Remove default Nginx config and add custom config to serve SPA on port 3000
+RUN rm /etc/nginx/conf.d/default.conf
+COPY <<EOF /etc/nginx/conf.d/app.conf
+server {
+    listen 3000;
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+        try_files \$uri \$uri/ /index.html;
+    }
+}
+EOF
                                                                                         
 # Expose port 3000                                                                      
 EXPOSE 3000                                                                             
