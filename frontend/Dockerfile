@@ -14,7 +14,7 @@ RUN npm run build
 FROM nginx:stable-alpine                                                                
                                                                                         
 # Copy built assets from the builder stage                                              
-COPY --from=builder /app/dist /usr/share/nginx/html                                     
+COPY --from=builder /app/dist/. /usr/share/nginx/html                                   
                                                                                         
 # Remove default Nginx config and add custom config to serve SPA on port 3000
 RUN rm /etc/nginx/conf.d/default.conf
