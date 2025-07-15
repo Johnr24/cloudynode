@@ -1,9 +1,9 @@
+apscheduler
+beautifulsoup4
 fastapi
-uvicorn[standard]
-requests
+gdown
 httpx
 python-dotenv
-beautifulsoup4
+requests
+uvicorn[standard]
 websockets
-apscheduler
-gdown

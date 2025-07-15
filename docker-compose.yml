@@ -16,6 +16,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_BACKEND_HOST=${VITE_BACKEND_HOST}
     ports:
       - "2156:2156"
     depends_on:
