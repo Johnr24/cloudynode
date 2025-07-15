@@ -57,7 +57,7 @@ CloudyNode consists of two main parts:
     ```
 
 3.  **Access CloudyNode:**
-    -   Open your web browser and navigate to `http://localhost:5173`.
+    -   Open your web browser and navigate to `http://localhost:2154`.
 
 ## Usage
 
