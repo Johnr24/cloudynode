@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import shutil
+import logging
 import subprocess
 import sys
 import threading
@@ -17,6 +18,10 @@ import re
 import httpx
 from bs4 import BeautifulSoup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from .dropbox import DropboxDownloader
+from .googledrive import GoogleDriveDownloader
+
 
 backend_dir = Path(__file__).parent.parent.resolve()
 load_dotenv(dotenv_path=backend_dir.parent / ".env")
@@ -410,7 +415,15 @@ async def _get_links_from_emails(sender_emails: List[str]) -> List[Dict[str, Any
             # Extract links
             found_links = []
             scanned_contents = []
-            url_pattern = re.compile(r"https?://(?:we\.tl|wetransfer\.com)/[a-zA-Z0-9\-\_/]+")
+            url_pattern = re.compile(
+                r"https?://(?:we\.tl|wetransfer\.com)/[a-zA-Z0-9\-\_/]+"
+                r"|https://www\.dropbox\.com/s/[^/]+/[^/\s?]+"
+                r"|https://www\.dropbox\.com/scl/[^/\s?]+/[^/\s?]+"
+                r"|https://www\.dropbox\.com/[^/\s?]+\?rlkey=[^/\s&]+"
+                r"|https://drive\.google\.com/file/d/[^/\s?]+(?:/[^/\s?]*)?"
+                r"|https://drive\.google\.com/open\?id=[^/\s&]+"
+                r"|https://drive\.google\.com/uc\?id=[^/\s&]+"
+            )
             for email in emails:
                 sender_email = (email.get("from") or [{}])[0].get("email")
                 if not sender_email:
@@ -528,55 +541,89 @@ async def _download_link(
             }
 
             try:
-                transferwee_script_path = transferwee_dir / "transferwee.py"
-                python_executable = sys.executable
+                downloaders = [
+                    DropboxDownloader(DOWNLOADS_DIR),
+                    GoogleDriveDownloader(DOWNLOADS_DIR),
+                ]
+                downloader = None
+                for d in downloaders:
+                    if d.can_handle_url(url):
+                        downloader = d
+                        break
 
-                proc = await asyncio.create_subprocess_exec(
-                    python_executable,
-                    str(transferwee_script_path),
-                    "download",
-                    url,
-                    cwd=DOWNLOADS_DIR,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-
-                stdout_lines = []
-                if proc.stdout:
-                    async for line in proc.stdout:
-                        decoded_line = line.decode().strip()
-                        stdout_lines.append(decoded_line)
-                        await send_progress("log", message=decoded_line)
-
-                stderr_lines = []
-                if proc.stderr:
-                    async for line in proc.stderr:
-                        decoded_line = line.decode().strip()
-                        stderr_lines.append(decoded_line)
-                        await send_progress("log", message=f"ERROR: {decoded_line}")
-
-                await proc.wait()
-
-                stdout = "\n".join(stdout_lines)
-                stderr = "\n".join(stderr_lines)
-
-                new_log_entry["transferwee_output"] = {
-                    "returncode": proc.returncode,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                }
-
-                if proc.returncode != 0:
-                    error_message = f"Download failed: {stderr or stdout}"
-                    new_log_entry["status"] = "failed"
-                    new_log_entry["error_message"] = error_message
-                    log_entries.append(new_log_entry)
-                    with open(DOWNLOAD_LOG_FILE, "w") as f:
-                        json.dump(log_entries, f, indent=2)
-                    await send_progress(
-                        "status", status="failed", message=error_message
+                if downloader:
+                    loop = asyncio.get_running_loop()
+                    # Run blocking download in a thread
+                    download_success = await loop.run_in_executor(
+                        None, downloader.download_file, url
                     )
-                    return  # Stop if download fails
+
+                    if not download_success:
+                        error_message = f"Download failed for {url} using {type(downloader).__name__}."
+                        new_log_entry["status"] = "failed"
+                        new_log_entry["error_message"] = error_message
+                        log_entries.append(new_log_entry)
+                        with open(DOWNLOAD_LOG_FILE, "w") as f:
+                            json.dump(log_entries, f, indent=2)
+                        await send_progress(
+                            "status", status="failed", message=error_message
+                        )
+                        return
+
+                    new_log_entry["downloader"] = type(downloader).__name__
+                else:
+                    # Fallback to WeTransfer
+                    transferwee_script_path = transferwee_dir / "transferwee.py"
+                    python_executable = sys.executable
+
+                    proc = await asyncio.create_subprocess_exec(
+                        python_executable,
+                        str(transferwee_script_path),
+                        "download",
+                        url,
+                        cwd=DOWNLOADS_DIR,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+
+                    stdout_lines = []
+                    if proc.stdout:
+                        async for line in proc.stdout:
+                            decoded_line = line.decode().strip()
+                            stdout_lines.append(decoded_line)
+                            await send_progress("log", message=decoded_line)
+
+                    stderr_lines = []
+                    if proc.stderr:
+                        async for line in proc.stderr:
+                            decoded_line = line.decode().strip()
+                            stderr_lines.append(decoded_line)
+                            await send_progress(
+                                "log", message=f"ERROR: {decoded_line}"
+                            )
+
+                    await proc.wait()
+
+                    stdout = "\n".join(stdout_lines)
+                    stderr = "\n".join(stderr_lines)
+
+                    new_log_entry["transferwee_output"] = {
+                        "returncode": proc.returncode,
+                        "stdout": stdout,
+                        "stderr": stderr,
+                    }
+
+                    if proc.returncode != 0:
+                        error_message = f"Download failed: {stderr or stdout}"
+                        new_log_entry["status"] = "failed"
+                        new_log_entry["error_message"] = error_message
+                        log_entries.append(new_log_entry)
+                        with open(DOWNLOAD_LOG_FILE, "w") as f:
+                            json.dump(log_entries, f, indent=2)
+                        await send_progress(
+                            "status", status="failed", message=error_message
+                        )
+                        return  # Stop if download fails
 
                 files_after = set(os.listdir(DOWNLOADS_DIR))
                 new_files = sorted(list(files_after - files_before))
@@ -593,8 +640,12 @@ async def _download_link(
                 response_payload = {
                     "message": f"Download completed for {url}",
                     "downloaded_files": new_files,
-                    "output": stdout,
                 }
+                if "transferwee_output" in new_log_entry:
+                    response_payload["output"] = new_log_entry["transferwee_output"][
+                        "stdout"
+                    ]
+
                 await send_progress("status", status="success", **response_payload)
 
             except Exception as e:

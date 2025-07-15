@@ -58,7 +58,16 @@ class DropboxDownloader(BaseDownloader):
             # Extract filename from URL
             filename = url.split('/')[-1].split('?')[0]
 
-            return self._download_file_with_progress(download_url, filename)
+            output_path = f"{self.download_path}/{filename}"
+
+            with self.session.get(download_url, stream=True) as r:
+                r.raise_for_status()
+                with open(output_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+            logger.info(f"Successfully downloaded Dropbox file: {output_path}")
+            return True
 
         except Exception as e:
             logger.error(f"Error downloading from Dropbox: {str(e)}")
