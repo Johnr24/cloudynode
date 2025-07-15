@@ -36,10 +36,9 @@ class GoogleDriveDownloader(BaseDownloader):
             logger.info(f"Processing Google Drive URL with file ID: {file_id}")
 
             # Use gdown to download the file
-            output = f"{self.download_path}/gdown_download"
             success = gdown.download(
                 url=f"https://drive.google.com/uc?id={file_id}",
-                output=output,
+                output=str(self.download_path),
                 quiet=False,
                 fuzzy=True
             )
