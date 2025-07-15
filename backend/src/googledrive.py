@@ -44,7 +44,7 @@ class GoogleDriveDownloader(BaseDownloader):
             )
 
             if success:
-                logger.info(f"Successfully downloaded Google Drive file: {output}")
+                logger.info(f"Successfully downloaded Google Drive file: {success}")
                 return True
             else:
                 logger.error("Failed to download file from Google Drive")
