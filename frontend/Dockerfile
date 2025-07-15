@@ -1,7 +1,7 @@
 # Stage 1: Build the application                                                        
 FROM node:24-bookworm AS builder
 ARG VITE_BACKEND_HOST
-ENV VITE_BACKEND_HOST=${VITE_BACKEND_HOST}
+ENV VITE_BACKEND_HOST=${VITE_BACKEND_HOST:-localhost:2155}
 WORKDIR /app                                                                            
                                                                                         
 # Copy package files and install dependencies                                           
