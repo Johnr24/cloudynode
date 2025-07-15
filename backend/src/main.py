@@ -11,7 +11,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, EmailStr
 import re
@@ -24,7 +23,6 @@ from .googledrive import GoogleDriveDownloader
 
 
 backend_dir = Path(__file__).parent.parent.resolve()
-load_dotenv(dotenv_path=backend_dir.parent / ".env")
 transferwee_dir = backend_dir / "transferwee"
 
 app = FastAPI()
