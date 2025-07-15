@@ -28,7 +28,7 @@ function App() {
   }), [projectTypes]);
 
   useEffect(() => {
-    ws.current = new WebSocket(`ws://backend:8000/ws/progress/${clientId}`);
+    ws.current = new WebSocket(`ws://localhost:/ws/progress/${clientId}`);
     ws.current.onmessage = (event) => {
         const data = JSON.parse(event.data);
         setDownloads(prev => ({
@@ -44,7 +44,7 @@ function App() {
   }, [clientId]);
 
   useEffect(() => {
-    fetch('http://backend:8000/graph')
+    fetch('http://localhost:2155/graph')
       .then((res) => res.json())
       .then((data) => {
         const hasData = data.nodes && data.nodes.length > 0;
@@ -78,7 +78,7 @@ function App() {
       return;
     }
     const graphState = { nodes, edges };
-    fetch('http://backend:8000/graph', {
+    fetch('http://localhost:2155/graph', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

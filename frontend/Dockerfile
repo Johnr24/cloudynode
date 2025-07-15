@@ -16,11 +16,11 @@ FROM nginx:stable-alpine
 # Copy built assets from the builder stage                                              
 COPY --from=builder /app/dist/. /usr/share/nginx/html                                   
                                                                                         
-# Remove default Nginx config and add custom config to serve SPA on port 3000
+# Remove default Nginx config and add custom config to serve SPA on port 2156
 RUN rm /etc/nginx/conf.d/default.conf
 COPY <<EOF /etc/nginx/conf.d/app.conf
 server {
-    listen 3000;
+    listen 2156;
     location / {
         root /usr/share/nginx/html;
         index index.html;
@@ -29,8 +29,8 @@ server {
 }
 EOF
                                                                                         
-# Expose port 3000                                                                      
-EXPOSE 3000                                                                             
+# Expose port 2156                                                                      
+EXPOSE 2156                                                                             
                                                                                         
 # Start Nginx                                                                           
 CMD ["nginx", "-g", "daemon off;"]
