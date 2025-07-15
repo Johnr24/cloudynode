@@ -2,13 +2,13 @@
 
 CloudyNode is a tool to automate your file downloading workflow. It scans your emails for download links (like WeTransfer), downloads the files, and organizes them into project folders for you. All of this is configured through a simple and intuitive node-based interface in your browser.
 
-<img src="readme/nathan.png" alt="image" class="custom-image" width=500>
 
 ## The Problem
 
 Do you receive files from clients via services like WeTransfer? Manually downloading and sorting these files every day is tedious and time-consuming. It's a repetitive task that can be automated, freeing you up to focus on more important work.
 
-## The Solution: CloudyNode
+## The Plan: CloudyNode
+<img src="readme/nathan.png" alt="image" class="custom-image" width=500>
 
 CloudyNode provides a visual way to automate this process:
 
