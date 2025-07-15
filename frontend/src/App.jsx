@@ -28,7 +28,7 @@ function App() {
   }), [projectTypes]);
 
   useEffect(() => {
-    ws.current = new WebSocket(`ws://localhost:/ws/progress/${clientId}`);
+    ws.current = new WebSocket(`ws://localhost:2155/ws/progress/${clientId}`);
     ws.current.onmessage = (event) => {
         const data = JSON.parse(event.data);
         setDownloads(prev => ({
