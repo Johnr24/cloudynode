@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import logging
+import importlib
 import subprocess
 import sys
 import threading
@@ -18,14 +19,24 @@ import httpx
 from bs4 import BeautifulSoup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from .dropbox import DropboxDownloader
-from .googledrive import GoogleDriveDownloader
+from .base import BaseDownloader
 
 
 backend_dir = Path(__file__).parent.parent.resolve()
 transferwee_dir = backend_dir / "transferwee"
 
 app = FastAPI()
+
+
+# Discover and import downloader modules
+src_dir = Path(__file__).parent
+for path in src_dir.iterdir():
+    if path.is_file() and path.suffix == ".py" and path.name not in ("__init__.py", "main.py", "base.py"):
+        module_name = f".{path.stem}"
+        try:
+            importlib.import_module(module_name, package="src")
+        except ImportError as e:
+            logging.warning(f"Could not import downloader module {module_name}: {e}")
 
 
 DOWNLOADS_DIR = backend_dir / "downloads"
@@ -540,8 +551,7 @@ async def _download_link(
 
             try:
                 downloaders = [
-                    DropboxDownloader(DOWNLOADS_DIR),
-                    GoogleDriveDownloader(DOWNLOADS_DIR),
+                    cls(DOWNLOADS_DIR) for cls in BaseDownloader.__subclasses__()
                 ]
                 downloader = None
                 for d in downloaders:

@@ -29,20 +29,55 @@ function App() {
   }), [projectTypes]);
 
   useEffect(() => {
-    ws.current = new WebSocket(`ws://${backendHost}/ws/progress/${clientId}`);
-    ws.current.onmessage = (event) => {
+    let connectInterval = null;
+
+    const connect = () => {
+      ws.current = new WebSocket(`ws://${backendHost}/ws/progress/${clientId}`);
+
+      ws.current.onopen = () => {
+        console.log("WebSocket connected");
+        if (connectInterval) {
+          clearInterval(connectInterval);
+          connectInterval = null;
+        }
+      };
+
+      ws.current.onmessage = (event) => {
         const data = JSON.parse(event.data);
         setDownloads(prev => ({
-            ...prev,
-            [data.url]: data,
+          ...prev,
+          [data.url]: data,
         }));
-    };
-    return () => {
-        if (ws.current) {
-            ws.current.close();
+      };
+
+      ws.current.onclose = () => {
+        console.log("WebSocket disconnected. Attempting to reconnect...");
+        if (!connectInterval) {
+          connectInterval = setInterval(() => {
+            connect();
+          }, 3000);
         }
+      };
+
+      ws.current.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        ws.current.close();
+      };
     };
-  }, [clientId]);
+
+    connect();
+
+    return () => {
+      if (connectInterval) {
+        clearInterval(connectInterval);
+      }
+      if (ws.current) {
+        // Prevent reconnect on component unmount
+        ws.current.onclose = () => {};
+        ws.current.close();
+      }
+    };
+  }, [clientId, backendHost]);
 
   useEffect(() => {
     fetch(`http://${backendHost}/graph`)
