@@ -61,7 +61,7 @@ function TextUpdaterNode({ id, data, projectTypes = [] }) {
       setLoading(true);
 
       const typesQuery = projectTypes.length > 0 ? `&types=${projectTypes.join('&types=')}` : '';
-      fetch(`http://localhost:8000/projects/discover?name=${encodeURIComponent(label)}${typesQuery}`)
+      fetch(`http://backend:8000/projects/discover?name=${encodeURIComponent(label)}${typesQuery}`)
         .then(res => res.json())
         .then(data => {
           setSuggestions(data);
