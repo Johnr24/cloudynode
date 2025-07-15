@@ -1,0 +1,20 @@
+import abc
+import httpx
+
+
+class BaseDownloader(abc.ABC):
+    """Abstract base class for downloaders."""
+
+    def __init__(self, download_path):
+        self.download_path = download_path
+        self.session = httpx.Client()
+
+    @abc.abstractmethod
+    def can_handle_url(self, url: str) -> bool:
+        """Check if the downloader can handle the given URL."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def download_file(self, url: str) -> bool:
+        """Download the file from the URL."""
+        raise NotImplementedError
