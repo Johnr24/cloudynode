@@ -1,6 +1,6 @@
 # ☁️🥰 CloudyNode 🥰☁️
 
-<img src = readme/gui.png width=500>
+<img src = readme/gui.png width=500 margin=auto>
 
 CloudyNode is a tool to automate your file downloading workflow. It scans your emails for download links (like WeTransfer), downloads the files, and organizes them into project folders for you. All of this is configured through a simple and intuitive node-based interface in your browser.
 
