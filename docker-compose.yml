@@ -11,6 +11,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./downloads:/app/downloads
+    restart: unless-stopped
   frontend:
     build:
       context: ./frontend
@@ -19,3 +20,4 @@ services:
       - "2156:3000"
     depends_on:
       - backend
+    restart: unless-stopped
