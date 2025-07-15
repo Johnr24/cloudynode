@@ -10,7 +10,7 @@ services:
       - "2155:8000"
     volumes:
       - ./data:/app/data
-      - .downloads:/app/downloads
+      - ./downloads:/app/downloads
   frontend:
     build:
       context: ./frontend
