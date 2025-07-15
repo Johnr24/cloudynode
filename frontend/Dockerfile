@@ -1,16 +1,34 @@
-FROM node:24-bookworm AS builder
-
-# Set the working directory
-WORKDIR /app
-# Copy the package.json file
-COPY package.json ./
-# Install dependencies
-RUN npm install
-# Copy the application code
-COPY . .
-# Build the application
-RUN npm run build
-# Set the command to run the application
-CMD ["npm", "run", "preview", "--", "--port", "3000"]
-# Expose the port the app runs on
-EXPOSE 3000
+# Stage 1: Build the application                                                        
+FROM node:24-bookworm AS builder                                                        
+WORKDIR /app                                                                            
+                                                                                        
+# Copy package files and install dependencies                                           
+COPY package*.json ./                                                                   
+RUN npm install                                                                         
+                                                                                        
+# Copy application source and build                                                     
+COPY . .                                                                                
+RUN npm run build                                                                       
+                                                                                        
+# Stage 2: Serve the application with Nginx                                             
+FROM nginx:stable-alpine                                                                
+                                                                                        
+# Copy built assets from the builder stage                                              
+COPY --from=builder /app/dist /usr/share/nginx/html                                     
+                                                                                        
+# Remove default Nginx config and add custom config to serve SPA on port 3000           
+RUN rm /etc/nginx/conf.d/default.conf                                                   
+RUN echo "server { \n\                                                                  
+    listen 3000; \n\                                                                    
+    location / { \n\                                                                    
+        root /usr/share/nginx/html; \n\                                                 
+        index index.html; \n\                                                           
+        try_files \$uri \$uri/ /index.html; \n\                                         
+    } \n\                                                                               
+}" > /etc/nginx/conf.d/app.conf                                                         
+                                                                                        
+# Expose port 3000                                                                      
+EXPOSE 3000                                                                             
+                                                                                        
+# Start Nginx                                                                           
+CMD ["nginx", "-g", "daemon off;"]
