@@ -1,6 +1,6 @@
 import re
 import logging
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
 from .base import BaseDownloader
 
 logger = logging.getLogger('file_downloader')
@@ -17,9 +17,9 @@ class DropboxDownloader(BaseDownloader):
     def can_handle_url(self, url: str) -> bool:
         """Check if the URL is a Dropbox link."""
         patterns = [
-            r'https://www\.dropbox\.com/s/[^/]+/[^/\s?]+',
-            r'https://www\.dropbox\.com/scl/[^/\s?]+/[^/\s?]+',
-            r'https://www\.dropbox\.com/[^/\s?]+\?rlkey=[^/\s&]+'
+            r'https://www\.dropbox\.com/s/[^/]+/[^/\s?]+', # Old file links
+            r'https://www\.dropbox\.com/scl/.+',          # New file/folder links
+            r'https://www\.dropbox\.com/sh/.+',           # Old folder links
         ]
         return any(re.match(pattern, url) for pattern in patterns)
 
@@ -55,13 +55,29 @@ class DropboxDownloader(BaseDownloader):
 
             logger.info(f"Converted to download URL: {download_url}")
 
-            # Extract filename from URL
-            filename = url.split('/')[-1].split('?')[0]
-
-            output_path = f"{self.download_path}/{filename}"
-
             with self.session.stream('GET', download_url, follow_redirects=True) as r:
                 r.raise_for_status()
+
+                filename = None
+                content_disposition = r.headers.get('content-disposition')
+                if content_disposition:
+                    # Handles RFC 5987 encoded filenames.
+                    filename_match = re.search(r"filename\*=UTF-8''([^']*)", content_disposition)
+                    if not filename_match:
+                        filename_match = re.search(r'filename="([^"]+)"', content_disposition)
+                    
+                    if filename_match:
+                        filename = unquote(filename_match.group(1))
+
+                if not filename:
+                    # Fallback to URL parsing
+                    filename = url.split('/')[-1].split('?')[0]
+                    # If it's a folder, it will be a zip file.
+                    if ('/scl/fo/' in url or '/sh/' in url) and not filename.lower().endswith('.zip'):
+                        filename += '.zip'
+                
+                output_path = f"{self.download_path}/{filename}"
+
                 with open(output_path, 'wb') as f:
                     for chunk in r.iter_bytes(chunk_size=8192):
                         f.write(chunk)
