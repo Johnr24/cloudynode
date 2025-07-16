@@ -27,6 +27,10 @@ COPY --from=builder --chown=appuser:appgroup /app/dist/. /usr/share/nginx/html
 # as Nginx needs to write to its cache.
 RUN mkdir -p /var/cache/nginx && \
     chown -R appuser:appgroup /var/cache/nginx
+
+# Update nginx.conf to use a writable pid path and comment out user directive.
+# This is necessary for running as a non-root user.
+RUN sed -i -e 's#pid\s+/var/run/nginx.pid;#pid /tmp/nginx.pid;#' -e 's/^user\s+nginx;/#user nginx;/' /etc/nginx/nginx.conf
                                                                                         
 # Remove default Nginx config and add custom config to serve SPA on port 2156
 RUN rm /etc/nginx/conf.d/default.conf
@@ -48,4 +52,4 @@ EXPOSE 2156
 USER appuser
                                                                                         
 # Start Nginx                                                                           
-CMD ["nginx", "-g", "pid /tmp/nginx.pid; daemon off;"]
+CMD ["nginx", "-g", "daemon off;"]
