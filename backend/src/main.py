@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import re
 import httpx
@@ -26,6 +27,15 @@ backend_dir = Path(__file__).parent.parent.resolve()
 transferwee_dir = backend_dir / "transferwee"
 
 app = FastAPI()
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Discover and import downloader modules
