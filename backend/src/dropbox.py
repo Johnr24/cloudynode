@@ -3,6 +3,7 @@ import logging
 import os
 import zipfile
 import json
+from typing import List
 from urllib.parse import urlparse, parse_qs, unquote
 from .base import BaseDownloader
 
@@ -26,7 +27,7 @@ class DropboxDownloader(BaseDownloader):
         ]
         return any(re.match(pattern, url) for pattern in patterns)
 
-    def download_file(self, url: str) -> bool:
+    def download_file(self, url: str) -> List[str]:
         """Download file(s) from Dropbox URL. Handles folder links by scraping."""
         try:
             # Check if it's a folder link
@@ -38,9 +39,9 @@ class DropboxDownloader(BaseDownloader):
                 return self._download_single_file(url)
         except Exception as e:
             logger.error(f"Error processing Dropbox URL {url}: {str(e)}")
-            return False
+            return []
 
-    def _download_folder_contents(self, folder_url: str) -> bool:
+    def _download_folder_contents(self, folder_url: str) -> List[str]:
         """Scrapes a Dropbox folder page and downloads each file."""
         # Ensure dl=0 to get the HTML page, not a zip download
         page_url = folder_url.replace('dl=1', 'dl=0')
@@ -59,7 +60,7 @@ class DropboxDownloader(BaseDownloader):
         match = re.search(r'preloadedState: ({.+?}),\n', html_content)
         if not match:
             logger.error("Could not find preloaded state JSON in Dropbox folder page. Cannot scrape for files.")
-            return False
+            return []
 
         try:
             preloaded_state = json.loads(match.group(1))
@@ -67,18 +68,18 @@ class DropboxDownloader(BaseDownloader):
             entries = preloaded_state.get('sharing', {}).get('entries', [])
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Failed to parse preloaded state JSON: {e}")
-            return False
+            return []
 
         if not entries:
             logger.warning("No file entries found in Dropbox folder.")
-            return True # No files to download is a success.
+            return [] # No files to download is a success, but no files were downloaded.
 
         # Extract rlkey from original folder URL to append to file URLs
         parsed_folder_url = urlparse(folder_url)
         query_params = parse_qs(parsed_folder_url.query)
         rlkey = query_params.get('rlkey', [None])[0]
 
-        all_success = True
+        downloaded_files = []
         for entry in entries:
             if entry.get('type') == 'file' and 'scl_id' in entry and 'name' in entry:
                 file_scl_id = entry['scl_id']
@@ -88,14 +89,19 @@ class DropboxDownloader(BaseDownloader):
                     file_url += f"?rlkey={rlkey}"
                 
                 logger.info(f"Found file in folder: {file_name}")
-                if not self._download_single_file(file_url):
-                    all_success = False
+                newly_downloaded = self._download_single_file(file_url)
+                if newly_downloaded:
+                    downloaded_files.extend(newly_downloaded)
+                else:
                     logger.error(f"Failed to download file: {file_name} from {file_url}")
         
-        return all_success
+        return downloaded_files
 
-    def _download_single_file(self, url: str) -> bool:
-        """Downloads a single file from a direct Dropbox file URL."""
+    def _download_single_file(self, url: str) -> List[str]:
+        """
+        Downloads a single file from a direct Dropbox file URL.
+        Returns a list containing the filename on success, otherwise an empty list.
+        """
         try:
             # Convert share URL to direct download URL
             download_url = url
@@ -132,8 +138,8 @@ class DropboxDownloader(BaseDownloader):
                     for chunk in r.iter_bytes(chunk_size=8192):
                         f.write(chunk)
 
-            logger.info(f"Successfully downloaded Dropbox file: {output_path}")
-            return True
+            logger.info(f"Successfully downloaded Dropbox file: {filename}")
+            return [filename]
         except Exception as e:
             logger.error(f"Error downloading single file from Dropbox {url}: {str(e)}")
-            return False
+            return []
