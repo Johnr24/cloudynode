@@ -641,13 +641,16 @@ async def _download_link(
                     # Fallback to WeTransfer
                     python_executable = sys.executable
 
-                    # The transferwee script is a module inside a package.
-                    # We run it with `python -m transferwee.transferwee`.
-                    # This assumes the 'transferwee' directory is in the python path.
+                    # transferwee is a submodule, so the script is inside the directory.
+                    transferwee_script_path = backend_dir / "transferwee" / "transferwee.py"
+
+                    if not transferwee_script_path.is_file():
+                        error_message = f"transferwee script not found at {transferwee_script_path}. This is likely because the git submodule is not initialized. Please run 'git submodule update --init --recursive' and rebuild the Docker image."
+                        raise RuntimeError(error_message)
+
                     proc = await asyncio.create_subprocess_exec(
                         python_executable,
-                        "-m",
-                        "transferwee.transferwee",
+                        str(transferwee_script_path),
                         "download",
                         url,
                         cwd=DOWNLOADS_DIR,
