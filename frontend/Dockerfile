@@ -45,4 +45,4 @@ EOF
 EXPOSE 2156                                                                             
                                                                                         
 # Start Nginx                                                                           
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["nginx", "-g", "pid /tmp/nginx.pid; daemon off;"]
