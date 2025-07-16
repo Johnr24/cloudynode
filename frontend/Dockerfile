@@ -17,7 +17,7 @@ FROM nginx:stable-alpine
                                                                                         
 # Create a non-root user with UID/GID 3000 for Nginx.
 # Alpine linux uses 'adduser' and 'addgroup'.
-RUN addgroup -g 3000 -S appgroup && adduser -u 3000 -S -D -G appgroup appuser
+RUN addgroup -g 3000 -S appgroup && adduser -u 3000 -S -D appuser && adduser appuser appgroup
 
 # Copy built assets from the builder stage and set ownership
 COPY --from=builder --chown=appuser:appgroup /app/dist/. /usr/share/nginx/html
