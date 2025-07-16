@@ -7,13 +7,15 @@ import importlib
 import subprocess
 import sys
 import threading
+import traceback
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 import re
 import httpx
@@ -29,9 +31,26 @@ transferwee_dir = backend_dir / "transferwee"
 app = FastAPI()
 
 
+@app.middleware("http")
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        print(f"FATAL: Unhandled exception: {error_trace}")
+        return JSONResponse(
+            status_code=500,
+            content={"message": "Internal Server Error", "detail": str(e)},
+        )
+
+
+http_client: httpx.AsyncClient | None = None
+
+
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -170,27 +189,57 @@ async def save_graph(graph_state: GraphState):
     return {"message": "Graph state saved"}
 
 
-@app.get("/projects/discover", response_model=List[ZeusProject])
-async def discover_projects(
-    types: List[ProjectType] | None = Query(None), name: str | None = Query(None)
-):
+@app.get("/projects/discover")
+async def discover_projects(request: Request):
     """
     Retrieves a list of discovered projects from ProjectZeus.
     PROJECTZEUS_ADDRESS should be set to the host and port (e.g., http://host:port).
     """
+    types = request.query_params.getlist("types")
+    name = request.query_params.get("name")
+    print(f"Entering discover_projects endpoint with name='{name}' and types={types}")
     projectzeus_address = os.getenv("PROJECTZEUS_ADDRESS")
     if not projectzeus_address:
         raise HTTPException(
             status_code=500, detail="PROJECTZEUS_ADDRESS must be set in .env file"
         )
 
+    # Docker networking fix: replace localhost/127.0.0.1 with host.docker.internal
+    # This allows the container to reach a service running on the host machine.
+    if "localhost" in projectzeus_address or "127.0.0.1" in projectzeus_address:
+        projectzeus_address = projectzeus_address.replace("localhost", "host.docker.internal")
+        projectzeus_address = projectzeus_address.replace("127.0.0.1", "host.docker.internal")
+
+    url = f"{projectzeus_address.rstrip('/')}/api/projects"
+
     try:
-        async with httpx.AsyncClient() as client:
-            url = f"{projectzeus_address.rstrip('/')}/api/projects"
-            print(f"Contacting ProjectZeus at: {url}")
-            response = await client.get(url)
-            response.raise_for_status()
+        if not http_client:
+            raise HTTPException(status_code=500, detail="HTTP client not initialized")
+
+        print(f"Contacting ProjectZeus at: {url}")
+        response = await http_client.get(url)
+        response.raise_for_status()
+
+        # Handle potential HTML response from ProjectZeus
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
             projects_data = response.json()
+        else:
+            soup = BeautifulSoup(response.text, "html.parser")
+            pre_tag = soup.find("pre")
+            if pre_tag and pre_tag.string:
+                try:
+                    projects_data = json.loads(pre_tag.string)
+                except json.JSONDecodeError:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to parse JSON from ProjectZeus's <pre> tag.",
+                    )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Received non-JSON response from ProjectZeus and could not find <pre> tag.",
+                )
     except httpx.HTTPStatusError as e:
         raise HTTPException(
             status_code=502,
@@ -200,9 +249,9 @@ async def discover_projects(
             ),
         )
     except httpx.RequestError as e:
-        raise HTTPException(
-            status_code=502, detail=f"Could not connect to ProjectZeus: {e}"
-        )
+        error_detail = f"Could not connect to ProjectZeus at {url}: {e}"
+        print(f"ERROR: {error_detail}")
+        raise HTTPException(status_code=502, detail=error_detail)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"An error occurred while fetching projects: {e}"
@@ -829,10 +878,16 @@ async def scheduled_job():
 
 @app.on_event("startup")
 async def startup_event():
+    global http_client
+    timeout = httpx.Timeout(30.0, connect=5.0)
+    http_client = httpx.AsyncClient(timeout=timeout)
     scheduler.add_job(scheduled_job, "interval", minutes=3)
     scheduler.start()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    global http_client
+    if http_client:
+        await http_client.aclose()
     scheduler.shutdown()

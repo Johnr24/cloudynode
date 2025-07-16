@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
 
-function TextUpdaterNode({ id, data, projectTypes = [] }) {
+function TextUpdaterNode({ id, data, projectTypes = [], backendConfig }) {
   const { setNodes } = useReactFlow();
   const [isEditing, setIsEditing] = useState(false);
   const [label, setLabel] = useState(data.label);
@@ -60,20 +60,33 @@ function TextUpdaterNode({ id, data, projectTypes = [] }) {
       }
       setLoading(true);
 
-      const typesQuery = projectTypes.length > 0 ? `&types=${projectTypes.join('&types=')}` : '';
-      fetch(`http://localhost:2155/projects/discover?name=${encodeURIComponent(label)}${typesQuery}`)
-        .then(res => res.json())
+      const params = new URLSearchParams({ name: label });
+      projectTypes.forEach(type => params.append('types', type));
+      const url = `${backendConfig.httpUrl}/projects/discover?${params.toString()}`;
+
+      fetch(url)
+        .then(res => {
+          if (!res.ok) {
+            // Log error response for debugging
+            res.text().then(text => console.error("Discovery error:", text));
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+          return res.json();
+        })
         .then(data => {
           setSuggestions(data);
           setLoading(false);
         })
-        .catch(() => setLoading(false));
+        .catch((err) => {
+          console.error("Failed to fetch suggestions:", err);
+          setLoading(false);
+        });
     }, 300);
 
     return () => {
       clearTimeout(handler);
     };
-  }, [label, data.nodeType, isEditing, projectTypes]);
+  }, [label, data.nodeType, isEditing, projectTypes, backendConfig]);
 
   const handleSelectSuggestion = (suggestion) => {
     setNodes((nodes) =>
