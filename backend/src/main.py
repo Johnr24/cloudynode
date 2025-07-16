@@ -26,7 +26,6 @@ from .base import BaseDownloader
 
 
 backend_dir = Path(__file__).parent.parent.resolve()
-transferwee_dir = backend_dir / "transferwee"
 
 app = FastAPI()
 
@@ -640,7 +639,7 @@ async def _download_link(
                     new_log_entry["downloader"] = type(downloader).__name__
                 else:
                     # Fallback to WeTransfer
-                    transferwee_script_path = transferwee_dir / "transferwee.py"
+                    transferwee_script_path = backend_dir / "transferwee"
                     python_executable = sys.executable
 
                     proc = await asyncio.create_subprocess_exec(
