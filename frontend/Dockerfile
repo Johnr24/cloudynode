@@ -15,9 +15,10 @@ RUN npm run build
 # Stage 2: Serve the application with Nginx                                             
 FROM nginx:stable-alpine                                                                
                                                                                         
-# Create a non-root user with UID/GID 3000 for Nginx.
-# Alpine linux uses 'adduser' and 'addgroup'.
-RUN addgroup -g 3000 -S appgroup && adduser -u 3000 -S -D -G appgroup appuser
+# Create a non-root user 'appuser' (UID 3000) and group 'appgroup' (GID 3000).
+# This single command creates the user and sets 'appgroup' as its primary group.
+# -S: create a system user, -D: no password.
+RUN adduser -S -D -u 3000 appuser appgroup
 
 # Copy built assets from the builder stage and set ownership
 COPY --from=builder --chown=appuser:appgroup /app/dist/. /usr/share/nginx/html
