@@ -18,8 +18,8 @@ FROM nginx:stable-alpine
 # Create group 'appgroup' (GID 3000) and user 'appuser' (UID 3000).
 # This ensures consistent UID/GID for file permissions.
 # -S: create a system user/group.
-# -g: set group ID, -u: set user ID, -D: no password.
-RUN addgroup -S -g 3000 appgroup && adduser -S -D -u 3000 appuser appgroup
+# -g: set group ID, -u: set user ID, -D: no password, -G: primary group.
+RUN addgroup -S -g 3000 appgroup && adduser -S -D -u 3000 -G appgroup appuser
 
 # Copy built assets from the builder stage and set ownership
 COPY --from=builder --chown=appuser:appgroup /app/dist/. /usr/share/nginx/html
