@@ -15,18 +15,18 @@ RUN npm run build
 # Stage 2: Serve the application with Nginx                                             
 FROM nginx:stable-alpine                                                                
                                                                                         
-# Copy built assets from the builder stage                                              
-COPY --from=builder /app/dist/. /usr/share/nginx/html                                   
-
 # Create a non-root user with UID/GID 3000 for Nginx.
 # Alpine linux uses 'adduser' and 'addgroup'.
 RUN addgroup -g 3000 -S appgroup && adduser -u 3000 -S -G appgroup appuser
 
+# Copy built assets from the builder stage and set ownership
+COPY --from=builder --chown=3000:3000 /app/dist/. /usr/share/nginx/html
+
 # Set permissions for directories to be owned by user 3000.
 # This is necessary when running the container with a specific user ID,
-# as Nginx needs to write to its cache and read the site content.
+# as Nginx needs to write to its cache.
 RUN mkdir -p /var/cache/nginx && \
-    chown -R 3000:3000 /var/cache/nginx /usr/share/nginx/html
+    chown -R 3000:3000 /var/cache/nginx
                                                                                         
 # Remove default Nginx config and add custom config to serve SPA on port 2156
 RUN rm /etc/nginx/conf.d/default.conf
