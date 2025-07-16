@@ -1,6 +1,7 @@
 name: cloudynode
 services:
   backend:
+    user: 3000:3000
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -13,6 +14,7 @@ services:
       - ./downloads:/app/downloads
     restart: unless-stopped
   frontend:
+    user: 3000:3000
     build:
       context: ./frontend
       dockerfile: Dockerfile
