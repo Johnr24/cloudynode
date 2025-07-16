@@ -10,8 +10,9 @@ CloudyNode is a tool to automate your file downloading workflow. It scans your e
 Do you receive files from clients via services like WeTransfer? Manually downloading and sorting these files every day is tedious and time-consuming. It's a repetitive task that can be automated, freeing you up to focus on more important work.
 
 ## The Plan: CloudyNode
+<p align="center">
 <img src="readme/nathan.png" alt="image" class="custom-image" width=500>
-
+</p>
 CloudyNode provides a visual way to automate this process:
 
 - **Email Scanning:** Automatically scans emails from specified senders for download links.
@@ -83,5 +84,7 @@ Now, any WeTransfer links from that sender will be downloaded and saved into the
 
 This Repo pairs Perfectly with Sister Repo Project Zeus - https://github.com/Johnr24/ProjectZeus
 
+<p align="center">
+    <img src = "https://github.com/Johnr24/ProjectZeus/blob/main/projectzeus.gif?raw=true">
+</p>
 
-<img src = "https://github.com/Johnr24/ProjectZeus/blob/main/projectzeus.gif?raw=true">
