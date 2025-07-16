@@ -21,7 +21,8 @@ COPY --from=builder /app/dist/. /usr/share/nginx/html
 # Set permissions for directories to be owned by user 3000.
 # This is necessary when running the container with a specific user ID,
 # as Nginx needs to write to its cache and read the site content.
-RUN chown -R 3000:3000 /var/cache/nginx /usr/share/nginx/html
+RUN mkdir -p /var/cache/nginx && \
+    chown -R 3000:3000 /var/cache/nginx /usr/share/nginx/html
                                                                                         
 # Remove default Nginx config and add custom config to serve SPA on port 2156
 RUN rm /etc/nginx/conf.d/default.conf
