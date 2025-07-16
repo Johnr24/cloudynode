@@ -24,13 +24,15 @@ COPY --from=builder --chown=appuser:appgroup /app/dist/. /usr/share/nginx/html
 
 # Set permissions for directories to be owned by user 3000.
 # This is necessary when running the container with a specific user ID,
-# as Nginx needs to write to its cache.
-RUN mkdir -p /var/cache/nginx && \
-    chown -R appuser:appgroup /var/cache/nginx
+# as Nginx needs to write to its cache and logs.
+RUN mkdir -p /var/cache/nginx /var/log/nginx /tmp && \
+    chown -R appuser:appgroup /var/cache/nginx /var/log/nginx /tmp
 
 # Update nginx.conf to use a writable pid path and comment out user directive.
 # This is necessary for running as a non-root user.
-RUN sed -i -e 's#pid\s+/var/run/nginx.pid;#pid /tmp/nginx.pid;#' -e 's/^user\s+nginx;/#user nginx;/' /etc/nginx/nginx.conf
+RUN sed -i -e 's#pid\s*/var/run/nginx.pid;#pid /tmp/nginx.pid;#' \
+           -e 's#pid\s*/run/nginx.pid;#pid /tmp/nginx.pid;#' \
+           -e 's/^user\s+nginx;/#user nginx;/' /etc/nginx/nginx.conf
                                                                                         
 # Remove default Nginx config and add custom config to serve SPA on port 2156
 RUN rm /etc/nginx/conf.d/default.conf
