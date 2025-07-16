@@ -638,7 +638,6 @@ async def _download_link(
 
                     new_log_entry["downloader"] = type(downloader).__name__
                 else:
-                else:
                     # Fallback to WeTransfer
                     python_executable = sys.executable
 
