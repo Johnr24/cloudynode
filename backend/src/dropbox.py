@@ -1,5 +1,7 @@
 import re
 import logging
+import os
+import zipfile
 from urllib.parse import urlparse, parse_qs, unquote
 from .base import BaseDownloader
 
@@ -83,6 +85,22 @@ class DropboxDownloader(BaseDownloader):
                         f.write(chunk)
 
             logger.info(f"Successfully downloaded Dropbox file: {output_path}")
+
+            # If the downloaded file is a zip, extract it and remove the original.
+            if output_path.lower().endswith('.zip'):
+                try:
+                    logger.info(f"Zip file detected. Extracting: {output_path}")
+                    with zipfile.ZipFile(output_path, 'r') as zip_ref:
+                        zip_ref.extractall(self.download_path)
+                    logger.info(f"Successfully extracted zip file to {self.download_path}")
+                    os.remove(output_path)
+                    logger.info(f"Deleted original zip file: {output_path}")
+                except zipfile.BadZipFile:
+                    logger.warning(f"Downloaded file ended with .zip but is not a valid zip file. Leaving as is: {output_path}")
+                except Exception as e:
+                    logger.error(f"Error extracting zip file {output_path}: {e}")
+                    return False
+
             return True
 
         except Exception as e:
