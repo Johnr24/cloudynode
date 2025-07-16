@@ -638,13 +638,17 @@ async def _download_link(
 
                     new_log_entry["downloader"] = type(downloader).__name__
                 else:
+                else:
                     # Fallback to WeTransfer
-                    transferwee_script_path = backend_dir / "transferwee"
                     python_executable = sys.executable
 
+                    # The transferwee script is a module inside a package.
+                    # We run it with `python -m transferwee.transferwee`.
+                    # This assumes the 'transferwee' directory is in the python path.
                     proc = await asyncio.create_subprocess_exec(
                         python_executable,
-                        str(transferwee_script_path),
+                        "-m",
+                        "transferwee.transferwee",
                         "download",
                         url,
                         cwd=DOWNLOADS_DIR,
