@@ -22,17 +22,39 @@ function App() {
   const [downloads, setDownloads] = useState({});
   const ws = useRef(null);
   const clientId = useMemo(() => `client-${Math.random().toString(36).substr(2, 9)}`, []);
-  const backendHost = import.meta.env.VITE_BACKEND_HOST || 'localhost:2155';
+  // Parse backend host to handle both host:port and full URL formats
+  const getBackendConfig = () => {
+    const backendHost = import.meta.env.VITE_BACKEND_HOST || `${window.location.hostname}:2155`;
+
+    // If it already includes protocol, parse it
+    if (backendHost.startsWith('http://') || backendHost.startsWith('https://')) {
+      const url = new URL(backendHost);
+      return {
+        httpUrl: backendHost,
+        wsUrl: backendHost.replace(/^http/, 'ws'),
+        host: url.host,
+      };
+    }
+
+    // Otherwise, assume it's just host:port
+    return {
+      httpUrl: `http://${backendHost}`,
+      wsUrl: `ws://${backendHost}`,
+      host: backendHost,
+    };
+  };
+  
+  const backendConfig = useMemo(() => getBackendConfig(), []);
 
   const nodeTypes = useMemo(() => ({
-    textUpdater: (props) => <TextUpdaterNode {...props} projectTypes={projectTypes} />
-  }), [projectTypes]);
+    textUpdater: (props) => <TextUpdaterNode {...props} projectTypes={projectTypes} backendConfig={backendConfig} />
+  }), [projectTypes, backendConfig]);
 
   useEffect(() => {
     let connectInterval = null;
 
     const connect = () => {
-      ws.current = new WebSocket(`ws://${backendHost}/ws/progress/${clientId}`);
+      ws.current = new WebSocket(`${backendConfig.wsUrl}/ws/progress/${clientId}`);
 
       ws.current.onopen = () => {
         console.log("WebSocket connected");
@@ -77,10 +99,10 @@ function App() {
         ws.current.close();
       }
     };
-  }, [clientId, backendHost]);
+  }, [clientId, backendConfig.wsUrl]);
 
   useEffect(() => {
-    fetch(`http://${backendHost}/graph`)
+    fetch(`${backendConfig.httpUrl}/graph`)
       .then((res) => res.json())
       .then((data) => {
         const hasData = data.nodes && data.nodes.length > 0;
@@ -114,7 +136,7 @@ function App() {
       return;
     }
     const graphState = { nodes, edges };
-    fetch(`http://${backendHost}/graph`, {
+    fetch(`${backendConfig.httpUrl}/graph`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
