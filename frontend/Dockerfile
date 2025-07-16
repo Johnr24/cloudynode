@@ -20,13 +20,13 @@ FROM nginx:stable-alpine
 RUN addgroup -g 3000 -S appgroup && adduser -u 3000 -S -G appgroup appuser
 
 # Copy built assets from the builder stage and set ownership
-COPY --from=builder --chown=3000:3000 /app/dist/. /usr/share/nginx/html
+COPY --from=builder --chown=appuser:appgroup /app/dist/. /usr/share/nginx/html
 
 # Set permissions for directories to be owned by user 3000.
 # This is necessary when running the container with a specific user ID,
 # as Nginx needs to write to its cache.
 RUN mkdir -p /var/cache/nginx && \
-    chown -R 3000:3000 /var/cache/nginx
+    chown -R appuser:appgroup /var/cache/nginx
                                                                                         
 # Remove default Nginx config and add custom config to serve SPA on port 2156
 RUN rm /etc/nginx/conf.d/default.conf
@@ -43,6 +43,9 @@ EOF
                                                                                         
 # Expose port 2156                                                                      
 EXPOSE 2156                                                                             
+
+# Switch to the non-root user
+USER appuser
                                                                                         
 # Start Nginx                                                                           
 CMD ["nginx", "-g", "pid /tmp/nginx.pid; daemon off;"]
