@@ -22,7 +22,6 @@ function App() {
   const [downloads, setDownloads] = useState({});
   const ws = useRef(null);
   const clientId = useMemo(() => `client-${Math.random().toString(36).substr(2, 9)}`, []);
-  const backendHost = import.meta.env.VITE_BACKEND_HOST || 'localhost:2155';
 
   const nodeTypes = useMemo(() => ({
     textUpdater: (props) => <TextUpdaterNode {...props} projectTypes={projectTypes} />
@@ -32,7 +31,8 @@ function App() {
     let connectInterval = null;
 
     const connect = () => {
-      ws.current = new WebSocket(`ws://${backendHost}/ws/progress/${clientId}`);
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws.current = new WebSocket(`${protocol}//${window.location.host}/ws/progress/${clientId}`);
 
       ws.current.onopen = () => {
         console.log("WebSocket connected");
@@ -77,10 +77,10 @@ function App() {
         ws.current.close();
       }
     };
-  }, [clientId, backendHost]);
+  }, [clientId]);
 
   useEffect(() => {
-    fetch(`http://${backendHost}/graph`)
+    fetch(`/graph`)
       .then((res) => res.json())
       .then((data) => {
         const hasData = data.nodes && data.nodes.length > 0;
@@ -114,7 +114,7 @@ function App() {
       return;
     }
     const graphState = { nodes, edges };
-    fetch(`http://${backendHost}/graph`, {
+    fetch(`/graph`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

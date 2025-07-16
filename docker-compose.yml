@@ -2,24 +2,16 @@ name: cloudynode
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    env_file:
-      - .env
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "2155:2155"
     volumes:
       - ./data:/app/data
       - ./downloads:/app/downloads
     restart: unless-stopped
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        - VITE_BACKEND_HOST=${VITE_BACKEND_HOST}
-    ports:
-      - "2156:2156"
-    depends_on:
-      - backend
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2155/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
