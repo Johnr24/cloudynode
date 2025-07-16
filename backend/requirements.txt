@@ -4,6 +4,7 @@ fastapi
 gdown
 httpx
 python-dotenv
+python-multipart
 requests
 uvicorn[standard]
 websockets
