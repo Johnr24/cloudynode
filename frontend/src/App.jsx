@@ -216,6 +216,7 @@ function App() {
         )}
       </div>
       <ReactFlow
+        data-testid="react-flow-wrapper"
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
