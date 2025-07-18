@@ -43,7 +43,13 @@ CloudyNode consists of two main parts:
 
 ### Installation
 
-1.  **Configure your environment:**
+1. Initalise Submodules: 
+    - After cloning the repository run the following command to download the transferwee repo to the correct location that the cloudy node backend expects
+        ```bash
+        git submodule update --init --recursive
+        ```
+        
+2.  **Configure your environment:**
     -   From the root of the project directory, create a `.env` file by copying the template:
         ```bash
         cp env.template .env
@@ -53,13 +59,13 @@ CloudyNode consists of two main parts:
         -   `JMAP_TOKEN`: An API token for authentication.
         -   `PROJECTS_BASE_PATH`: The base directory on your local machine where your project folders are located.
 
-2.  **Run the application:**
+3.  **Run the application:**
     The easiest way to get started is with Docker Compose. This will build and run both the frontend and backend services from the root of the project:
     ```bash
     docker-compose up --build
     ```
 
-3.  **Access CloudyNode:**
+4.  **Access CloudyNode:**
     -   Open your web browser and navigate to `http://localhost:2154`.
 
 ## Usage
