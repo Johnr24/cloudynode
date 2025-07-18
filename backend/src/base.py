@@ -1,5 +1,6 @@
 import abc
 import httpx
+from typing import List
 
 
 class BaseDownloader(abc.ABC):
@@ -15,6 +16,9 @@ class BaseDownloader(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def download_file(self, url: str) -> bool:
-        """Download the file from the URL."""
+    def download_file(self, url: str) -> List[str]:
+        """
+        Download file(s) from the URL.
+        Returns a list of downloaded filenames, or an empty list on failure.
+        """
         raise NotImplementedError

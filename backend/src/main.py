@@ -600,12 +600,12 @@ async def _download_link(
             await send_progress(
                 "status", status="started", message="Download process started."
             )
-            files_before = set(os.listdir(DOWNLOADS_DIR))
             new_log_entry = {
                 "url": url,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "copied_to_projects": [],
             }
+            downloaded_files: List[str] = []
 
             try:
                 downloaders = [
@@ -620,28 +620,14 @@ async def _download_link(
                 if downloader:
                     loop = asyncio.get_running_loop()
                     # Run blocking download in a thread
-                    download_success = await loop.run_in_executor(
+                    downloaded_files = await loop.run_in_executor(
                         None, downloader.download_file, url
                     )
-
-                    if not download_success:
-                        error_message = f"Download failed for {url} using {type(downloader).__name__}."
-                        new_log_entry["status"] = "failed"
-                        new_log_entry["error_message"] = error_message
-                        log_entries.append(new_log_entry)
-                        with open(DOWNLOAD_LOG_FILE, "w") as f:
-                            json.dump(log_entries, f, indent=2)
-                        await send_progress(
-                            "status", status="failed", message=error_message
-                        )
-                        return
-
                     new_log_entry["downloader"] = type(downloader).__name__
                 else:
                     # Fallback to WeTransfer
+                    files_before = set(os.listdir(DOWNLOADS_DIR))
                     python_executable = sys.executable
-
-                    # transferwee is a submodule, so the script is inside the directory.
                     transferwee_script_path = backend_dir / "transferwee" / "transferwee.py"
 
                     if not transferwee_script_path.is_file():
@@ -696,22 +682,22 @@ async def _download_link(
                             "status", status="failed", message=error_message
                         )
                         return  # Stop if download fails
-
-                files_after = set(os.listdir(DOWNLOADS_DIR))
-                new_files = sorted(list(files_after - files_before))
+                    
+                    files_after = set(os.listdir(DOWNLOADS_DIR))
+                    downloaded_files = sorted(list(files_after - files_before))
 
                 new_log_entry["status"] = "success"
-                new_log_entry["files"] = new_files
+                new_log_entry["files"] = downloaded_files
                 new_log_entry["file_details"] = [
                     {"name": f, "size": os.path.getsize(DOWNLOADS_DIR / f)}
-                    for f in new_files
+                    for f in downloaded_files
                 ]
                 log_entries.append(new_log_entry)
                 log_entry = new_log_entry
 
                 response_payload = {
                     "message": f"Download completed for {url}",
-                    "downloaded_files": new_files,
+                    "downloaded_files": downloaded_files,
                 }
                 if "transferwee_output" in new_log_entry:
                     response_payload["output"] = new_log_entry["transferwee_output"][
